@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>SafeVision</title>
+    <title>SafeVision V2</title> <!-- Title for the new app -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <!-- Manifest for PWA features -->
     <link rel="manifest" href="manifest.json">
@@ -79,6 +79,34 @@
             100% { transform: scale(1); opacity: 1; }
         }
 
+        /* Styles for the call simulation screenshot overlay */
+        #callSimulationOverlay {
+            /* Force hidden on load and only shown by JS */
+            display: none !important; 
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background-color: rgba(0,0,0,0.98); /* Near-black background for true full screen effect */
+            display: flex; /* Will be set to 'flex' by JS when visible */
+            justify-content: center;
+            align-items: center;
+            z-index: 9999; /* Ensure it's on top of everything */
+            cursor: pointer; /* Indicates it's clickable */
+        }
+
+        #callScreenshot {
+            width: 100vw; /* Make image fill the entire viewport width */
+            height: 100vh; /* Make image fill the entire viewport height */
+            object-fit: cover; /* Crop if necessary to cover the entire screen */
+            border-radius: 0; /* No rounded corners for true fullscreen */
+            box-shadow: none; /* No shadow for true fullscreen */
+            display: block; /* Ensure it behaves like a block element */
+        }
+
+        /* Utility class to forcefully hide elements */
+        .hidden {
+            display: none !important;
+        }
         /* New debug info elements */
         #debugInfo {
             position: absolute;
@@ -116,6 +144,12 @@
         <div>Model Loaded: <span id="debugModelLoaded">false</span></div>
     </div>
 
+    <!-- Call Simulation Overlay -->
+    <div id="callSimulationOverlay">
+        <!-- IMPORTANT: Ensure 'call-112-screenshot.png' is uploaded to your GitHub repo's root directory -->
+        <img id="callScreenshot" src="call-112-screenshot.png" alt="Emergency Call Simulation">
+    </div>
+
     <!-- TensorFlow.js and COCO-SSD Model Libraries from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -131,12 +165,16 @@
         const objectEl = document.getElementById("object");
         const proximityStatusEl = document.getElementById("proximityStatus");
         const speechRecognitionStatusEl = document.getElementById("speechRecognitionStatus");
+        const callSimulationOverlay = document.getElementById('callSimulationOverlay');
         // New debug info elements
         const debugStateEl = document.getElementById('debugState');
         const debugSpeakingEl = document.getElementById('debugSpeaking');
         const debugMutedEl = document.getElementById('debugMuted');
         const debugVideoReadyEl = document.getElementById('debugVideoReady');
         const debugModelLoadedEl = document.getElementById('debugModelLoaded');
+
+        // Group all UI elements that should hide during simulation
+        const uiElementsToHide = document.querySelectorAll('.ui-element');
 
         // --- Variables ---
         let model, recognition, fullInfoIntervalId;
@@ -147,6 +185,8 @@
         const SPEECH_COOLDOWN_WARNING = 3000; // 3 seconds cooldown for proximity warnings
         let lastFullInfoSpeechTime = 0; // Timestamp of last full info speech
         let lastWarningSpeechTime = 0; // Timestamp of last warning speech
+        const CALL_SIMULATION_DURATION = 3000; // 3 seconds for screenshot display
+        let callSimulationTimeoutId; // Timeout ID for the call simulation auto-hide
         
         // State management for speech recognition and Gemini processing
         let currentRecognitionState = 'IDLE'; // States: 'IDLE', 'PROCESSING_GEMINI', 'PROCESSING_GEMINI_ASSISTANT'
@@ -238,6 +278,13 @@
                 return; 
             }
             
+            // Only process frames when not in simulation
+            if (callSimulationOverlay.style.display !== 'none') { 
+                console.log('[DetectFrame Debug] In call simulation. Skipping frame.');
+                requestAnimationFrame(detectFrame); 
+                return; 
+            }
+
             let predictions;
             try {
                 if (model) {
@@ -301,19 +348,23 @@
             console.log(`[TTS Debug] Attempting to speak (${type}): "${cleanedText}"`);
             updateDebugInfo(); // Update debug info on speak attempt
 
-            if (isMuted) { 
+            if (isMuted && type !== 'emergency') { // Re-added emergency type bypass for mute
                 console.log(`[TTS Debug] Speech (${type}) blocked: Muted.`);
                 return;
             }
             
-            if (speaking || (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO))) {
+            // Re-added emergency type bypass for cooldown/speaking check
+            if (type !== 'emergency' && (speaking || (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO)))) {
                 console.log(`[TTS Debug] Speech (${type}) blocked due to cooldown or already speaking.`);
                 return;
             }
 
+            // Re-added emergency type bypass for cancel
             if (speechSynthesis.speaking) {
-                speechSynthesis.cancel();
-                console.log("[TTS Debug] Cancelled ongoing speech.");
+                if (type === 'emergency' || (type !== 'emergency' && speaking)) { 
+                    speechSynthesis.cancel();
+                    console.log("[TTS Debug] Cancelled ongoing speech.");
+                }
             }
 
             const voices = speechSynthesis.getVoices();
@@ -358,8 +409,8 @@
 
         function speakFullInformation() {
             console.log('[SpeakFullInfo Debug] Attempting to speak full information.');
-            // Only speak if in IDLE state (not processing Gemini)
-            if (currentRecognitionState === 'IDLE') { 
+            // Only speak if not in simulation AND if in IDLE state (not processing Gemini)
+            if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex') { // Added call simulation check
                 // Emojis are removed by stripEmojis within the speak function itself now
                 const combinedText = `
                     Status: ${statusEl.textContent}.
@@ -375,7 +426,7 @@
                     console.log('[SpeakFullInfo Debug] Text is the same as last time, skipping speech.');
                 }
             } else {
-                console.log(`[SpeakFullInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState}.`);
+                console.log(`[SpeakFullInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState} or in call simulation.`);
             }
         }
 
@@ -405,8 +456,8 @@
             };
             recognition.onend = () => {
                 console.log('[SR Debug] Recognition ended.');
-                // Only restart if should be continuous and not in an active Gemini state
-                if (currentRecognitionState === 'IDLE' && recognition.continuous) {
+                // Only restart if should be continuous and not in an active Gemini state or simulation
+                if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex' && recognition.continuous) {
                     try { 
                         console.log('[SR Debug] Attempting to restart recognition.');
                         recognition.start(); 
@@ -414,13 +465,13 @@
                         console.warn('[SR Debug] Failed to restart recognition:', e); 
                     }
                 } else {
-                    console.log(`[SR Debug] Not restarting recognition: currentRecognitionState is ${currentRecognitionState} or recognition is not continuous.`);
+                    console.log(`[SR Debug] Not restarting recognition: currentRecognitionState is ${currentRecognitionState} or in call simulation.`);
                 }
             };
             recognition.onerror = (event) => {
                 console.error('[SR Debug] Recognition error:', event.error);
                 if (event.error === 'not-allowed') {
-                    speak("Microphone permission denied. Voice commands are disabled.", 'fullInfo'); 
+                    speak("Microphone permission denied. Voice commands are disabled.", 'emergency'); // Re-added emergency type
                     speechRecognitionStatusEl.innerHTML = "Mic permission denied!"; 
                     speechRecognitionStatusEl.style.color = 'red';
                     recognition.continuous = false; // Stop trying to restart
@@ -446,19 +497,22 @@
                     if (isFinal && currentRecognitionState === 'IDLE') {
                         if (transcript.includes("mute")) {
                             isMuted = true;
-                            await speak("Muted.", 'fullInfo'); 
+                            await speak("Muted.", 'emergency'); // Re-added emergency type
                             speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Muted | Listening for commands...`;
                             updateDebugInfo();
                         } else if (transcript.includes("unmute")) {
                             isMuted = false;
-                            await speak("Unmuted.", 'fullInfo'); 
+                            await speak("Unmuted.", 'emergency'); // Re-added emergency type
                             speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Listening for commands...`;
                             updateDebugInfo();
                         } else if (transcript.includes("describe scene") || transcript.includes("what do you see")) {
                              getSceneDescriptionFromGemini();
                         } else if (transcript.includes("emergency")) {
-                            // Removed emergency simulation, just speak a message
-                            await speak("Emergency feature is not active in this version.", 'fullInfo');
+                            // Speak the combined instruction and simulation message
+                            await speak(`Initiating simulated emergency call. For an actual direct emergency call, quickly press your phone's power button five times.`, 'emergency');
+                            
+                            // Stop core app functions and show simulation
+                            showCallSimulation();
                         } else {
                             // If no specific command, send to general Gemini assistant
                             await askGemini(transcript);
@@ -498,7 +552,7 @@
             speechSynthesis.cancel(); // Cancel any existing speech
             
             speechRecognitionStatusEl.innerHTML = 'Generating description...'; // Removed emoji
-            await speak("Generating scene description, please wait.", 'fullInfo'); 
+            await speak("Generating scene description, please wait.", 'emergency'); // Re-added emergency type
 
             try {
                 const objects = window.detectedObjectsForGemini || [];
@@ -550,11 +604,11 @@
                 }
                 
                 console.log("[Gemini] Received description:", geminiDescription);
-                await speak(geminiDescription, 'fullInfo'); 
+                await speak(geminiDescription, 'emergency'); // Re-added emergency type
 
             } catch (error) {
                 console.error("[Gemini] Error generating scene description:", error);
-                await speak("Failed to get scene description. Please check internet connection.", 'fullInfo'); 
+                await speak("Failed to get scene description. Please check internet connection.", 'emergency'); // Re-added emergency type
             } finally {
                 setTimeout(() => {
                     currentRecognitionState = 'IDLE';
@@ -583,7 +637,7 @@
             speechSynthesis.cancel(); // Cancel any existing speech
 
             speechRecognitionStatusEl.innerHTML = 'Thinking...'; // Removed emoji
-            await speak("Thinking.", 'fullInfo'); 
+            await speak("Thinking.", 'emergency'); // Re-added emergency type
 
             try {
                 let chatHistory = [];
@@ -613,11 +667,11 @@
                 }
                 
                 console.log("[Gemini Assistant] Received response:", geminiResponse);
-                await speak(geminiResponse, 'fullInfo'); 
+                await speak(geminiResponse, 'emergency'); // Re-added emergency type
 
             } catch (error) {
                 console.error("[Gemini Assistant] Error asking Gemini:", error);
-                await speak("I encountered an error. Please check your internet connection.", 'fullInfo'); 
+                await speak("I encountered an error. Please check your internet connection.", 'emergency'); // Re-added emergency type
             } finally {
                 // Ensure recognition and periodic info resume after a short delay to let speech finish
                 setTimeout(() => {
@@ -630,6 +684,37 @@
                 }, 1000); // 1-second delay
             }
         }
+
+        // --- Call Simulation Functions ---
+        function showCallSimulation() {
+            // Hide all standard UI elements
+            uiElementsToHide.forEach(el => el.classList.add('hidden'));
+            
+            // Show the call simulation overlay
+            callSimulationOverlay.style.display = 'flex'; 
+            console.log(`[Simulation] Call simulation started for ${CALL_SIMULATION_DURATION / 1000} seconds.`);
+
+            // Set timeout to automatically hide the simulation
+            callSimulationTimeoutId = setTimeout(hideCallSimulation, CALL_SIMULATION_DURATION);
+        }
+
+        function hideCallSimulation() {
+            clearTimeout(callSimulationTimeoutId); // Clear any pending automatic hide
+            callSimulationOverlay.style.display = 'none'; // Hide the overlay
+            console.log("[Simulation] Call simulation ended.");
+            
+            // Show all standard UI elements
+            uiElementsToHide.forEach(el => el.classList.remove('hidden'));
+
+            // Resume main app functionalities
+            startContinuousRecognition(); // Resume speech recognition
+            clearInterval(fullInfoIntervalId); // Clear old interval if it's running
+            fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); // Start periodic info speaking
+            console.log("[Simulation] App functionalities resumed.");
+        }
+
+        // Add event listener to the overlay to hide it on any tap/click
+        callSimulationOverlay.addEventListener('click', hideCallSimulation);
 
 
         // --- Initial App Load Function ---
