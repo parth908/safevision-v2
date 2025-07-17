@@ -1,15 +1,15 @@
-const CACHE_NAME = 'safevision-v2-cache-v10'; // Unique cache name for the new app
+const CACHE_NAME = 'safevision-v2-cache-v3'; // Changed to v3 as requested
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png', 
   './icon-512.png', 
-  './call-112-screenshot.png' // This is included for the new app
+  './call-112-screenshot.png' 
 ];
 
 self.addEventListener('install', (event) => {
-  console.log('[Service Worker] Installing - v10. Taking control immediately.');
+  console.log('[Service Worker] Installing - v3. Taking control immediately.'); // Log changed
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -22,7 +22,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('[Service Worker] Activating - v10. Claiming clients.');
+  console.log('[Service Worker] Activating - v3. Claiming clients.'); // Log changed
   const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
     caches.keys().then((cacheNames) => {
