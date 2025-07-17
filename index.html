@@ -119,6 +119,25 @@
             color: #0f0; /* Green for debug info */
             text-align: left;
         }
+        /* Visual indicator for detection activity */
+        #detectionActivity {
+            position: absolute;
+            bottom: 10px; right: 10px;
+            width: 15px;
+            height: 15px;
+            background-color: red; /* Default to red (inactive) */
+            border-radius: 50%;
+            z-index: 4;
+            opacity: 0.5;
+        }
+        #detectionActivity.active {
+            background-color: limegreen; /* Green when active */
+            animation: blink 1s infinite alternate;
+        }
+        @keyframes blink {
+            from { opacity: 1; }
+            to { opacity: 0.3; }
+        }
     </style>
 </head>
 <body>
@@ -144,6 +163,9 @@
         <div>Model Loaded: <span id="debugModelLoaded">false</span></div>
         <div>Voices: <span id="debugVoiceCount">0</span></div> <!-- New debug element -->
     </div>
+
+    <!-- Detection Activity Indicator -->
+    <div id="detectionActivity"></div>
 
     <!-- Call Simulation Overlay -->
     <div id="callSimulationOverlay">
@@ -174,6 +196,7 @@
         const debugVideoReadyEl = document.getElementById('debugVideoReady');
         const debugModelLoadedEl = document.getElementById('debugModelLoaded');
         const debugVoiceCountEl = document.getElementById('debugVoiceCount'); // New debug element
+        const detectionActivityEl = document.getElementById('detectionActivity'); // New detection indicator
 
         // Group all UI elements that should hide during simulation
         const uiElementsToHide = document.querySelectorAll('.ui-element');
@@ -276,9 +299,12 @@
         const FRAMES_TO_SKIP = 2; // Process AI detection every 3rd frame (0, 1, 2 -> process 2)
         const PROXIMITY_THRESHOLD_HEIGHT = 450;
         async function detectFrame() {
-            // console.log('[DetectFrame Debug] detectFrame called.'); // Added for frequent check
+            // Set detection activity indicator to active
+            detectionActivityEl.classList.add('active');
+            
             if (video.readyState < 2) { 
                 console.log('[DetectFrame Debug] Video not ready (state:', video.readyState, '). Skipping frame.');
+                detectionActivityEl.classList.remove('active'); // Turn off if not processing
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
@@ -286,6 +312,7 @@
             // Only process frames when not in simulation
             if (callSimulationOverlay.style.display !== 'none') { 
                 console.log('[DetectFrame Debug] In call simulation. Skipping frame.');
+                detectionActivityEl.classList.remove('active'); // Turn off if not processing
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
@@ -294,14 +321,16 @@
             try {
                 if (model) {
                     predictions = await model.detect(video);
-                    // console.log('[DetectFrame Debug] Model detected predictions:', predictions.length); // Too chatty, uncomment if needed
+                    console.log('[DetectFrame Debug] Model.detect() called. Predictions count:', predictions.length); // Added log
                 } else { 
                     console.log('[DetectFrame Debug] Model not loaded yet. Skipping frame.');
+                    detectionActivityEl.classList.remove('active'); // Turn off if not processing
                     requestAnimationFrame(detectFrame); 
                     return; 
                 }
             } catch (e) { 
                 console.error("Error during model detection:", e);
+                detectionActivityEl.classList.remove('active'); // Turn off if error
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
@@ -339,6 +368,7 @@
                 proximityStatusEl.textContent = personDetected ? "Person detected" : "No person detected"; // Removed emoji from display text
             }); // End tf.tidy
 
+            // Keep detection activity indicator active if loop continues
             requestAnimationFrame(detectFrame);
         }
 
@@ -372,10 +402,10 @@
             }
 
             const voices = speechSynthesis.getVoices();
-            console.log(`[TTS Debug] Found ${voices.length} voices.`);
+            console.log(`[TTS Debug] Found ${voices.length} voices when speak was called.`);
             if (!voices.length) {
-                console.warn("[TTS Debug] No speech synthesis voices available on this device when speak was called.");
-                statusEl.textContent = "Speech not available (no voices, trying anyway)"; 
+                console.warn("[TTS Debug] No speech synthesis voices available on this device when speak was called. Cannot speak.");
+                statusEl.textContent = "Speech not available (no voices, check device settings)"; // More specific message
                 statusEl.style.color = 'red';
                 return;
             }
@@ -387,7 +417,8 @@
                 utterance.voice = indianVoice;
                 console.log("[TTS Debug] Using voice:", indianVoice.name);
             } else {
-                console.warn("[TTS Debug] No specific Indian/GB English voice found, using default.");
+                console.warn("[TTS Debug] No specific Indian/GB English voice found, using default voice:", voices[0]?.name || 'N/A');
+                utterance.voice = voices[0]; // Use first available voice as fallback
             }
 
             utterance.rate = 1.0; utterance.pitch = 1.0; utterance.volume = 1.0;
@@ -732,6 +763,19 @@
             statusEl.textContent = "Loading AI model... SafeVision"; 
             updateDebugInfo(); // Initial debug info update
             
+            // Test immediate speech (before waiting for voices to be fully loaded)
+            console.log('[Main] Attempting very early speech test: "App is starting."');
+            try {
+                const testUtterance = new SpeechSynthesisUtterance("App is starting.");
+                testUtterance.lang = "en-US"; // Use a common language for this test
+                testUtterance.volume = 0.5; // Lower volume for test
+                speechSynthesis.speak(testUtterance);
+                console.log('[Main] Very early speech test initiated.');
+            } catch (e) {
+                console.error('[Main] Error during very early speech test:', e);
+            }
+
+
             // First, wait for SpeechSynthesis voices to be ready
             console.log('[Main] Waiting for SpeechSynthesis voices...');
             await new Promise(resolve => {
