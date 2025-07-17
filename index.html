@@ -796,7 +796,7 @@
                     setTimeout(() => {
                         if (speechSynthesis.getVoices().length === 0) {
                             console.warn("[Main] Voices not loaded after 2s timeout. Proceeding anyway, but speech might be silent.");
-                            statusEl.textContent = "Speech not ready (no voices, trying anyway)"; 
+                            statusEl.textContent = "Speech not available (no voices, check device settings)"; // Updated message
                             statusEl.style.color = 'orange';
                         }
                         updateDebugInfo(); // Update voice count after timeout
