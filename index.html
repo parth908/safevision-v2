@@ -198,7 +198,7 @@
         // New debug info elements
         const debugStateEl = document.getElementById('debugState');
         const debugSpeakingEl = document.getElementById('debugSpeaking');
-        const debugMutedEl = document.getElementById('Muted'); // Corrected ID
+        const debugMutedEl = document.getElementById('debugMuted'); // Corrected ID
         const debugVideoReadyEl = document.getElementById('debugVideoReady');
         const debugModelLoadedEl = document.getElementById('debugModelLoaded');
         const debugVoiceCountEl = document.getElementById('debugVoiceCount'); 
@@ -231,7 +231,8 @@
             debugVideoReadyEl.textContent = video.readyState >= 2; 
             debugModelLoadedEl.textContent = !!model; 
             debugVoiceCountEl.textContent = speechSynthesis.getVoices().length; 
-            debugResponsiveVoiceStatusEl.textContent = typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled() ? 'Ready' : 'Not Ready'; // Update ResponsiveVoice status
+            // Check if responsiveVoice object exists and has an enabled method
+            debugResponsiveVoiceStatusEl.textContent = typeof responsiveVoice !== 'undefined' && typeof responsiveVoice.enabled === 'function' && responsiveVoice.enabled() ? 'Ready' : 'Not Ready'; 
             console.log(`[Debug Info Update] State: ${currentRecognitionState}, Speaking: ${speaking}, Muted: ${isMuted}, Video Ready: ${video.readyState >= 2}, Model Loaded: ${!!model}, Voices (Native): ${speechSynthesis.getVoices().length}, ResponsiveVoice: ${debugResponsiveVoiceStatusEl.textContent}`);
         }
 
@@ -306,18 +307,19 @@
         const FRAMES_TO_SKIP = 2; 
         const PROXIMITY_THRESHOLD_HEIGHT = 450;
         async function detectFrame() {
-            detectionActivityEl.classList.add('active'); // Indicate activity
+            // Set detection activity indicator to active
+            detectionActivityEl.classList.add('active');
             
             if (video.readyState < 2) { 
                 console.log('[DetectFrame Debug] Video not ready (state:', video.readyState, '). Skipping frame.');
-                detectionActivityEl.classList.remove('active'); 
+                detectionActivityEl.classList.remove('active'); // Turn off if not processing
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
             
             if (callSimulationOverlay.style.display !== 'none') { 
                 console.log('[DetectFrame Debug] In call simulation. Skipping frame.');
-                detectionActivityEl.classList.remove('active'); 
+                detectionActivityEl.classList.remove('active'); // Turn off if not processing
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
@@ -410,11 +412,11 @@
             updateDebugInfo();
 
             // --- Attempt ResponsiveVoice first ---
-            if (typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled()) {
+            if (typeof responsiveVoice !== 'undefined' && typeof responsiveVoice.enabled === 'function' && responsiveVoice.enabled()) {
                 console.log("[TTS Debug] Attempting to speak using ResponsiveVoice.");
                 try {
                     // ResponsiveVoice doesn't have direct onstart/onend promises, use callbacks
-                    responsiveVoice.speak(cleanedText, "US English Female", {
+                    responsiveVoice.speak(cleanedText, "US English Female", { // Using US English Female as a reliable voice
                         onstart: () => { console.log("[TTS Debug] ResponsiveVoice speech started."); },
                         onend: () => {
                             speaking = false;
@@ -455,14 +457,14 @@
                 }
 
                 const utterance = new SpeechSynthesisUtterance(textToSpeak);
-                utterance.lang = "en-IN";
+                utterance.lang = "en-IN"; // Prefer Indian English
                 const indianVoice = voices.find(voice => voice.lang === 'en-IN' || voice.lang === 'en-GB' || voice.name.includes('India'));
                 if (indianVoice) {
                     utterance.voice = indianVoice;
                     console.log("[TTS Debug] Native SpeechSynthesis: Using voice:", indianVoice.name);
                 } else {
                     console.warn("[TTS Debug] Native SpeechSynthesis: No specific Indian/GB English voice found, using default voice:", voices[0]?.name || 'N/A');
-                    utterance.voice = voices[0]; 
+                    utterance.voice = voices[0]; // Use first available voice as fallback
                 }
 
                 utterance.rate = 1.0; utterance.pitch = 1.0; utterance.volume = 1.0;
@@ -489,7 +491,8 @@
             }
 
             // If ResponsiveVoice was attempted and didn't return, or failed, try native
-            if (!(typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled())) {
+            // This check ensures tryNativeSpeech is only called if ResponsiveVoice isn't handling it
+            if (!(typeof responsiveVoice !== 'undefined' && typeof responsiveVoice.enabled === 'function' && responsiveVoice.enabled() && responsiveVoice.speaking())) {
                 tryNativeSpeech(cleanedText, type);
             }
         }
@@ -627,7 +630,7 @@
             clearInterval(fullInfoIntervalId); 
             if (recognition) { recognition.stop(); } 
             speechSynthesis.cancel(); 
-            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); // Also cancel ResponsiveVoice
+            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); 
             
             speechRecognitionStatusEl.innerHTML = 'Generating description...'; 
             await speak("Generating scene description, please wait.", 'emergency'); 
@@ -713,7 +716,7 @@
                 recognition.stop(); 
             }
             speechSynthesis.cancel(); 
-            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); // Also cancel ResponsiveVoice
+            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); 
 
             speechRecognitionStatusEl.innerHTML = 'Thinking...'; 
             await speak("Thinking.", 'emergency'); 
@@ -765,23 +768,35 @@
 
         // --- Call Simulation Functions ---
         function showCallSimulation() {
+            console.log('[Simulation] showCallSimulation called. Hiding UI elements.');
             uiElementsToHide.forEach(el => el.classList.add('hidden'));
+            
             callSimulationOverlay.style.display = 'flex'; 
             console.log(`[Simulation] Call simulation started for ${CALL_SIMULATION_DURATION / 1000} seconds.`);
+
+            // Ensure any previous timeout is cleared
+            if (callSimulationTimeoutId) {
+                clearTimeout(callSimulationTimeoutId);
+            }
             callSimulationTimeoutId = setTimeout(hideCallSimulation, CALL_SIMULATION_DURATION);
         }
 
         function hideCallSimulation() {
+            console.log('[Simulation] hideCallSimulation called. Showing UI elements.');
             clearTimeout(callSimulationTimeoutId); 
             callSimulationOverlay.style.display = 'none'; 
             console.log("[Simulation] Call simulation ended.");
+            
             uiElementsToHide.forEach(el => el.classList.remove('hidden'));
+
+            // Resume main app functionalities
             startContinuousRecognition(); 
             clearInterval(fullInfoIntervalId); 
             fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); 
             console.log("[Simulation] App functionalities resumed.");
         }
 
+        // Attach event listener to the overlay to hide it on any tap/click
         callSimulationOverlay.addEventListener('click', hideCallSimulation);
 
 
@@ -791,36 +806,33 @@
             statusEl.textContent = "Loading AI model... SafeVision"; 
             updateDebugInfo(); 
             
+            // --- CRITICAL: Ensure we are NOT in call simulation mode on start ---
+            hideCallSimulation(); // Force hide if somehow stuck from previous session
+
             // Wait for ResponsiveVoice to be ready
             console.log('[Main] Waiting for ResponsiveVoice to be ready...');
             await new Promise(resolve => {
-                // ResponsiveVoice has its own ready callback
-                if (typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled()) {
-                    console.log("[Main] ResponsiveVoice is immediately ready.");
-                    updateDebugInfo();
-                    resolve();
-                } else if (typeof responsiveVoice !== 'undefined') {
-                    // If ResponsiveVoice script loaded but not enabled yet, wait for its internal ready state
-                    const checkResponsiveVoice = setInterval(() => {
-                        if (responsiveVoice.enabled()) {
-                            console.log("[Main] ResponsiveVoice became ready.");
-                            clearInterval(checkResponsiveVoice);
-                            updateDebugInfo();
-                            resolve();
-                        }
-                    }, 100); // Check every 100ms
-                    setTimeout(() => {
-                        if (!responsiveVoice.enabled()) {
-                            console.warn("[Main] ResponsiveVoice not ready after 5s timeout. Proceeding without it.");
-                            updateDebugInfo();
-                            resolve();
-                        }
-                    }, 5000); // 5 second timeout for ResponsiveVoice
-                } else {
-                    console.warn("[Main] ResponsiveVoice script not loaded. Proceeding without it.");
-                    updateDebugInfo();
-                    resolve(); // Resolve immediately if script isn't there
-                }
+                const checkResponsiveVoice = setInterval(() => {
+                    if (typeof responsiveVoice !== 'undefined' && typeof responsiveVoice.enabled === 'function' && responsiveVoice.enabled()) {
+                        console.log("[Main] ResponsiveVoice is ready.");
+                        clearInterval(checkResponsiveVoice);
+                        updateDebugInfo();
+                        resolve();
+                    } else if (typeof responsiveVoice === 'undefined') {
+                        console.warn("[Main] ResponsiveVoice script not loaded. Proceeding without it.");
+                        clearInterval(checkResponsiveVoice);
+                        updateDebugInfo();
+                        resolve(); // Resolve immediately if script isn't there
+                    }
+                }, 100); // Check every 100ms
+                setTimeout(() => {
+                    if (typeof responsiveVoice === 'undefined' || !responsiveVoice.enabled()) {
+                        console.warn("[Main] ResponsiveVoice not ready after 5s timeout. Proceeding without it.");
+                        clearInterval(checkResponsiveVoice);
+                        updateDebugInfo();
+                        resolve();
+                    }
+                }, 5000); // 5 second timeout for ResponsiveVoice
             });
             console.log('[Main] ResponsiveVoice ready status checked. Proceeding.');
 
@@ -867,7 +879,7 @@
 
             console.log('[Main] Attempting to speak "Welcome to SafeVision."');
             setTimeout(async () => {
-                await speak("Welcome to SafeVision. Your visual assistant is ready.", 'fullInfo'); // More descriptive welcome
+                await speak("Welcome to SafeVision. Your visual assistant is ready.", 'fullInfo'); 
                 console.log('[Main] "Welcome to SafeVision" spoken (or attempted).');
 
                 console.log('[Main] Setting up Speech Recognition...');
