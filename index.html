@@ -305,7 +305,7 @@
 
         // --- Object Detection ---
         const FRAMES_TO_SKIP = 2; 
-        const PROXIMITY_THRESHOLD_HEIGHT = 450; // Reverted to 450 pixels
+        const PROXIMITY_THRESHOLD_HEIGHT = 500; // Increased to 500 pixels (from 450)
         async function detectFrame() {
             // Set detection activity indicator to active
             detectionActivityEl.classList.add('active');
@@ -363,7 +363,7 @@
 
                         if (pred.class === 'person') {
                             personDetected = true;
-                            // Check for proximity based on the CORRECTED threshold
+                            // Check for proximity based on the adjusted threshold
                             if (height > PROXIMITY_THRESHOLD_HEIGHT) {
                                 ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.strokeRect(x, y, width, height);
                                 ctx.fillStyle = 'red'; ctx.fillText(`VERY CLOSE!`, x, y + height + 20);
@@ -506,24 +506,25 @@
         // Added a new parameter `forceSpeak` to bypass cooldown for initial immediate call
         function speakFullInformation(forceSpeak = false) {
             console.log('[SpeakFullInfo Debug] Attempting to speak full information. ForceSpeak:', forceSpeak);
-            if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex') { 
-                const combinedText = `
-                    Status: ${statusEl.textContent}.
-                    Weather: ${weatherEl.textContent}.
-                    Date and Time: ${datetimeEl.textContent}.
-                    Object detection: ${objectEl.textContent}.
-                    Proximity status: ${proximityStatusEl.textContent}.
-                `.replace(/\s+/g, ' ').trim();
-                
-                if (forceSpeak || combinedText !== lastSpokenFullInfo || (Date.now() - lastFullInfoSpeechTime >= SPEECH_COOLDOWN_FULL_INFO)) {
-                    console.log("[SpeakFullInfo Debug] Full info text changed or cooldown passed or forced. Attempting to speak.");
-                    speak(combinedText, 'fullInfo');
-                    lastSpokenFullInfo = combinedText;
-                } else {
-                    console.log('[SpeakFullInfo Debug] Text is the same as last time or cooldown not passed, skipping speech.');
-                }
+            if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'none') { 
+                console.log(`[SpeakFullInfo Debug] Not speaking: In call simulation.`);
+                return;
+            }
+
+            const combinedText = `
+                Status: ${statusEl.textContent}.
+                Weather: ${weatherEl.textContent}.
+                Date and Time: ${datetimeEl.textContent}.
+                Object detection: ${objectEl.textContent}.
+                Proximity status: ${proximityStatusEl.textContent}.
+            `.replace(/\s+/g, ' ').trim();
+            
+            if (forceSpeak || combinedText !== lastSpokenFullInfo || (Date.now() - lastFullInfoSpeechTime >= SPEECH_COOLDOWN_FULL_INFO)) {
+                console.log("[SpeakFullInfo Debug] Full info text changed or cooldown passed or forced. Attempting to speak.");
+                speak(combinedText, 'fullInfo');
+                lastSpokenFullInfo = combinedText;
             } else {
-                console.log(`[SpeakFullInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState} or in call simulation.`);
+                console.log('[SpeakFullInfo Debug] Text is the same as last time or cooldown not passed, skipping speech.');
             }
         }
 
@@ -551,7 +552,7 @@
             };
             recognition.onend = () => {
                 console.log('[SR Debug] Recognition ended.');
-                if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex' && recognition.continuous) {
+                if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'none' && recognition.continuous) {
                     try { 
                         console.log('[SR Debug] Attempting to restart recognition.');
                         recognition.start(); 
