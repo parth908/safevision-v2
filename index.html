@@ -213,8 +213,8 @@
         let speaking = false;
         let isMuted = false;
         let lastSpokenFullInfo = "";
-        // Changed cooldown to 30 seconds as requested
-        const SPEECH_COOLDOWN_FULL_INFO = 30000; // 30 seconds cooldown for periodic info updates
+        // Cooldown for periodic info updates (30 seconds as requested)
+        const SPEECH_COOLDOWN_FULL_INFO = 30000; 
         const SPEECH_COOLDOWN_WARNING = 3000; // 3 seconds cooldown for proximity warnings
         let lastFullInfoSpeechTime = 0; // Timestamp of last full info speech
         let lastWarningSpeechTime = 0; // Timestamp of last warning speech
@@ -305,7 +305,7 @@
 
         // --- Object Detection ---
         const FRAMES_TO_SKIP = 2; 
-        const PROXIMITY_THRESHOLD_HEIGHT = 100; // TEMPORARILY LOWERED FOR TESTING
+        const PROXIMITY_THRESHOLD_HEIGHT = 450; // Reverted to 450 pixels
         async function detectFrame() {
             // Set detection activity indicator to active
             detectionActivityEl.classList.add('active');
@@ -363,7 +363,7 @@
 
                         if (pred.class === 'person') {
                             personDetected = true;
-                            // Check for proximity based on the TEMPORARILY LOWERED threshold
+                            // Check for proximity based on the CORRECTED threshold
                             if (height > PROXIMITY_THRESHOLD_HEIGHT) {
                                 ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.strokeRect(x, y, width, height);
                                 ctx.fillStyle = 'red'; ctx.fillText(`VERY CLOSE!`, x, y + height + 20);
@@ -503,8 +503,9 @@
             }
         }
 
-        function speakFullInformation() {
-            console.log('[SpeakFullInfo Debug] Attempting to speak full information.');
+        // Added a new parameter `forceSpeak` to bypass cooldown for initial immediate call
+        function speakFullInformation(forceSpeak = false) {
+            console.log('[SpeakFullInfo Debug] Attempting to speak full information. ForceSpeak:', forceSpeak);
             if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex') { 
                 const combinedText = `
                     Status: ${statusEl.textContent}.
@@ -513,9 +514,9 @@
                     Object detection: ${objectEl.textContent}.
                     Proximity status: ${proximityStatusEl.textContent}.
                 `.replace(/\s+/g, ' ').trim();
-                // Only speak if the text has changed or if the cooldown has passed
-                if (combinedText !== lastSpokenFullInfo || (Date.now() - lastFullInfoSpeechTime >= SPEECH_COOLDOWN_FULL_INFO)) {
-                    console.log("[SpeakFullInfo Debug] Full info text changed or cooldown passed. Attempting to speak.");
+                
+                if (forceSpeak || combinedText !== lastSpokenFullInfo || (Date.now() - lastFullInfoSpeechTime >= SPEECH_COOLDOWN_FULL_INFO)) {
+                    console.log("[SpeakFullInfo Debug] Full info text changed or cooldown passed or forced. Attempting to speak.");
                     speak(combinedText, 'fullInfo');
                     lastSpokenFullInfo = combinedText;
                 } else {
