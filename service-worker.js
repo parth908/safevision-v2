@@ -6,10 +6,11 @@ const urlsToCache = [
   './icon-192.png', 
   './icon-512.png', 
   './call-112-screenshot.png' 
+  // Note: ResponsiveVoice.js is loaded from a CDN and won't be cached by this service worker.
 ];
 
 self.addEventListener('install', (event) => {
-  console.log('[Service Worker] Installing - v3. Taking control immediately.'); // Log changed
+  console.log('[Service Worker] Installing - v3. Taking control immediately.'); 
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -22,7 +23,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('[Service Worker] Activating - v3. Claiming clients.'); // Log changed
+  console.log('[Service Worker] Activating - v3. Claiming clients.'); 
   const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
     caches.keys().then((cacheNames) => {
