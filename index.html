@@ -198,11 +198,11 @@
         // New debug info elements
         const debugStateEl = document.getElementById('debugState');
         const debugSpeakingEl = document.getElementById('debugSpeaking');
-        const debugMutedEl = document.getElementById('debugMuted'); // Corrected ID
+        const debugMutedEl = document.getElementById('debugMuted'); 
         const debugVideoReadyEl = document.getElementById('debugVideoReady');
         const debugModelLoadedEl = document.getElementById('debugModelLoaded');
         const debugVoiceCountEl = document.getElementById('debugVoiceCount'); 
-        const debugResponsiveVoiceStatusEl = document.getElementById('debugResponsiveVoiceStatus'); // New element
+        const debugResponsiveVoiceStatusEl = document.getElementById('debugResponsiveVoiceStatus');
         const detectionActivityEl = document.getElementById('detectionActivity'); 
 
         // Group all UI elements that should hide during simulation
@@ -213,7 +213,8 @@
         let speaking = false;
         let isMuted = false;
         let lastSpokenFullInfo = "";
-        const SPEECH_COOLDOWN_FULL_INFO = 60000; // 60 seconds (1 minute) cooldown for periodic info updates
+        // Changed cooldown to 30 seconds as requested
+        const SPEECH_COOLDOWN_FULL_INFO = 30000; // 30 seconds cooldown for periodic info updates
         const SPEECH_COOLDOWN_WARNING = 3000; // 3 seconds cooldown for proximity warnings
         let lastFullInfoSpeechTime = 0; // Timestamp of last full info speech
         let lastWarningSpeechTime = 0; // Timestamp of last warning speech
@@ -231,7 +232,6 @@
             debugVideoReadyEl.textContent = video.readyState >= 2; 
             debugModelLoadedEl.textContent = !!model; 
             debugVoiceCountEl.textContent = speechSynthesis.getVoices().length; 
-            // Check if responsiveVoice object exists and has an enabled method
             debugResponsiveVoiceStatusEl.textContent = typeof responsiveVoice !== 'undefined' && typeof responsiveVoice.enabled === 'function' && responsiveVoice.enabled() ? 'Ready' : 'Not Ready'; 
             console.log(`[Debug Info Update] State: ${currentRecognitionState}, Speaking: ${speaking}, Muted: ${isMuted}, Video Ready: ${video.readyState >= 2}, Model Loaded: ${!!model}, Voices (Native): ${speechSynthesis.getVoices().length}, ResponsiveVoice: ${debugResponsiveVoiceStatusEl.textContent}`);
         }
@@ -305,7 +305,7 @@
 
         // --- Object Detection ---
         const FRAMES_TO_SKIP = 2; 
-        const PROXIMITY_THRESHOLD_HEIGHT = 450;
+        const PROXIMITY_THRESHOLD_HEIGHT = 100; // TEMPORARILY LOWERED FOR TESTING
         async function detectFrame() {
             // Set detection activity indicator to active
             detectionActivityEl.classList.add('active');
@@ -363,6 +363,7 @@
 
                         if (pred.class === 'person') {
                             personDetected = true;
+                            // Check for proximity based on the TEMPORARILY LOWERED threshold
                             if (height > PROXIMITY_THRESHOLD_HEIGHT) {
                                 ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.strokeRect(x, y, width, height);
                                 ctx.fillStyle = 'red'; ctx.fillText(`VERY CLOSE!`, x, y + height + 20);
@@ -385,7 +386,7 @@
 
         async function speak(text, type = 'fullInfo') {
             const cleanedText = stripEmojis(text);
-            console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}"`);
+            console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}". Current 'speaking' status: ${speaking}`);
             updateDebugInfo();
 
             if (isMuted && type !== 'emergency') { 
@@ -393,48 +394,53 @@
                 return;
             }
             
-            if (type !== 'emergency' && (speaking || (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO)))) {
-                console.log(`[TTS Debug] Speech (${type}) blocked due to cooldown or already speaking. Speaking: ${speaking}, Last Full Info: ${lastFullInfoSpeechTime}, Last Warning: ${lastWarningSpeechTime}`);
+            // Check cooldowns and 'speaking' flag for non-emergency speech
+            if (type !== 'emergency' && speaking) {
+                console.log(`[TTS Debug] Speech (${type}) blocked: Already speaking.`);
+                return;
+            }
+            // Only apply cooldown for 'fullInfo' and 'warning' types, not for 'emergency' or initial welcome
+            if (type !== 'emergency' && type !== 'initialWelcome' && (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO))) {
+                console.log(`[TTS Debug] Speech (${type}) blocked: Cooldown active. Last Full Info: ${lastFullInfoSpeechTime}, Last Warning: ${lastWarningSpeechTime}`);
                 return;
             }
 
-            // Cancel any ongoing speech before starting new one
+            // Cancel any ongoing speech before starting new one (native or ResponsiveVoice)
             if (speechSynthesis.speaking) {
-                console.log("[TTS Debug] speechSynthesis.speaking is true. Cancelling current speech.");
+                console.log("[TTS Debug] Native speechSynthesis.speaking is true. Cancelling current speech.");
                 speechSynthesis.cancel();
             }
             if (typeof responsiveVoice !== 'undefined' && responsiveVoice.speaking()) {
-                console.log("[TTS Debug] responsiveVoice.speaking is true. Cancelling current speech.");
+                console.log("[TTS Debug] ResponsiveVoice.speaking is true. Cancelling current speech.");
                 responsiveVoice.cancel();
             }
 
-            speaking = true; // Set speaking flag early
+            speaking = true; // Set speaking flag when speech is about to start
             updateDebugInfo();
+            console.log("[TTS Debug] 'speaking' flag set to TRUE.");
 
-            // --- Attempt ResponsiveVoice first ---
+            // --- Attempt ResponsiveVoice first (if available and enabled) ---
             if (typeof responsiveVoice !== 'undefined' && typeof responsiveVoice.enabled === 'function' && responsiveVoice.enabled()) {
                 console.log("[TTS Debug] Attempting to speak using ResponsiveVoice.");
                 try {
-                    // ResponsiveVoice doesn't have direct onstart/onend promises, use callbacks
-                    responsiveVoice.speak(cleanedText, "US English Female", { // Using US English Female as a reliable voice
+                    responsiveVoice.speak(cleanedText, "US English Female", { 
                         onstart: () => { console.log("[TTS Debug] ResponsiveVoice speech started."); },
                         onend: () => {
                             speaking = false;
                             if (type === 'fullInfo') lastFullInfoSpeechTime = Date.now();
                             else if (type === 'warning') lastWarningSpeechTime = Date.now();
                             updateDebugInfo();
-                            console.log("[TTS Debug] ResponsiveVoice speech ended.");
+                            console.log("[TTS Debug] ResponsiveVoice speech ended. 'speaking' flag set to FALSE.");
                         },
                         onerror: (e) => {
                             console.error("[TTS Debug] ResponsiveVoice error:", e);
-                            speaking = false;
+                            speaking = false; // Ensure flag is reset on error
                             updateDebugInfo();
-                            // Fallback to native if ResponsiveVoice fails
                             console.log("[TTS Debug] ResponsiveVoice failed, falling back to native SpeechSynthesis.");
-                            tryNativeSpeech(cleanedText, type);
+                            tryNativeSpeech(cleanedText, type); // Fallback to native
                         }
                     });
-                    return; // ResponsiveVoice is handling it
+                    return; // ResponsiveVoice is handling it, exit speak function
                 } catch (e) {
                     console.error("[TTS Debug] Error calling ResponsiveVoice.speak():", e);
                     // Fall through to native speech if ResponsiveVoice call itself fails
@@ -451,20 +457,20 @@
                     console.warn("[TTS Debug] Native SpeechSynthesis: No voices available. Cannot speak.");
                     statusEl.textContent = "Speech not available (no voices, check device settings)"; 
                     statusEl.style.color = 'red';
-                    speaking = false;
+                    speaking = false; // Ensure flag is reset if no voices
                     updateDebugInfo();
                     return;
                 }
 
                 const utterance = new SpeechSynthesisUtterance(textToSpeak);
-                utterance.lang = "en-IN"; // Prefer Indian English
+                utterance.lang = "en-IN"; 
                 const indianVoice = voices.find(voice => voice.lang === 'en-IN' || voice.lang === 'en-GB' || voice.name.includes('India'));
                 if (indianVoice) {
                     utterance.voice = indianVoice;
                     console.log("[TTS Debug] Native SpeechSynthesis: Using voice:", indianVoice.name);
                 } else {
                     console.warn("[TTS Debug] Native SpeechSynthesis: No specific Indian/GB English voice found, using default voice:", voices[0]?.name || 'N/A');
-                    utterance.voice = voices[0]; // Use first available voice as fallback
+                    utterance.voice = voices[0]; 
                 }
 
                 utterance.rate = 1.0; utterance.pitch = 1.0; utterance.volume = 1.0;
@@ -479,11 +485,11 @@
                     if (originalType === 'fullInfo') lastFullInfoSpeechTime = Date.now();
                     else if (originalType === 'warning') lastWarningSpeechTime = Date.now();
                     updateDebugInfo(); 
-                    console.log("[TTS Debug] Native Speech ended for: " + textToSpeak);
+                    console.log("[TTS Debug] Native Speech ended for: " + textToSpeak + ". 'speaking' flag set to FALSE.");
                 };
                 utterance.onerror = (event) => { 
                     console.error('[TTS Debug] Native SpeechSynthesisUtterance.onerror:', event.error, "for text:", textToSpeak, event); 
-                    speaking = false; 
+                    speaking = false; // Ensure flag is reset on error
                     updateDebugInfo(); 
                 };
                 console.log("[TTS Debug] Calling native speechSynthesis.speak().");
@@ -507,11 +513,13 @@
                     Object detection: ${objectEl.textContent}.
                     Proximity status: ${proximityStatusEl.textContent}.
                 `.replace(/\s+/g, ' ').trim();
-                if (combinedText !== lastSpokenFullInfo) {
+                // Only speak if the text has changed or if the cooldown has passed
+                if (combinedText !== lastSpokenFullInfo || (Date.now() - lastFullInfoSpeechTime >= SPEECH_COOLDOWN_FULL_INFO)) {
+                    console.log("[SpeakFullInfo Debug] Full info text changed or cooldown passed. Attempting to speak.");
                     speak(combinedText, 'fullInfo');
                     lastSpokenFullInfo = combinedText;
                 } else {
-                    console.log('[SpeakFullInfo Debug] Text is the same as last time, skipping speech.');
+                    console.log('[SpeakFullInfo Debug] Text is the same as last time or cooldown not passed, skipping speech.');
                 }
             } else {
                 console.log(`[SpeakFullInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState} or in call simulation.`);
@@ -615,7 +623,7 @@
                     console.warn('[SR Debug] Recognition start failed:', e);
                 }
             } else {
-                console.log('[SR Debug] Recognition not started: recognition object not available or state not IDLE.');
+                console.log(`[SR Debug] Recognition not started: recognition object not available or state not IDLE.`);
             }
         }
 
@@ -796,7 +804,6 @@
             console.log("[Simulation] App functionalities resumed.");
         }
 
-        // Attach event listener to the overlay to hide it on any tap/click
         callSimulationOverlay.addEventListener('click', hideCallSimulation);
 
 
@@ -807,9 +814,13 @@
             updateDebugInfo(); 
             
             // --- CRITICAL: Ensure we are NOT in call simulation mode on start ---
-            hideCallSimulation(); // Force hide if somehow stuck from previous session
+            // Added a small delay to ensure DOM is fully ready for manipulation
+            setTimeout(() => {
+                hideCallSimulation(); 
+                console.log('[Main] Forced hideCallSimulation on startup.');
+            }, 100); // Small delay to ensure DOM is ready
 
-            // Wait for ResponsiveVoice to be ready
+            // Wait for ResponsiveVoice to be ready (for debug info, even if not primary TTS)
             console.log('[Main] Waiting for ResponsiveVoice to be ready...');
             await new Promise(resolve => {
                 const checkResponsiveVoice = setInterval(() => {
@@ -822,9 +833,9 @@
                         console.warn("[Main] ResponsiveVoice script not loaded. Proceeding without it.");
                         clearInterval(checkResponsiveVoice);
                         updateDebugInfo();
-                        resolve(); // Resolve immediately if script isn't there
+                        resolve(); 
                     }
-                }, 100); // Check every 100ms
+                }, 100); 
                 setTimeout(() => {
                     if (typeof responsiveVoice === 'undefined' || !responsiveVoice.enabled()) {
                         console.warn("[Main] ResponsiveVoice not ready after 5s timeout. Proceeding without it.");
@@ -832,12 +843,12 @@
                         updateDebugInfo();
                         resolve();
                     }
-                }, 5000); // 5 second timeout for ResponsiveVoice
+                }, 5000); 
             });
             console.log('[Main] ResponsiveVoice ready status checked. Proceeding.');
 
-            // Also wait for native SpeechSynthesis voices (for fallback)
-            console.log('[Main] Waiting for Native SpeechSynthesis voices (for fallback)...');
+            // Also wait for native SpeechSynthesis voices
+            console.log('[Main] Waiting for Native SpeechSynthesis voices...');
             await new Promise(resolve => {
                 speechSynthesis.onvoiceschanged = () => {
                     console.log("[Main] Native Voices loaded via onvoiceschanged event. Count:", speechSynthesis.getVoices().length);
@@ -877,28 +888,39 @@
             updateDebugInfo(); 
             console.log("[Main] AI model loaded. Initializing speech recognition.");
 
-            console.log('[Main] Attempting to speak "Welcome to SafeVision."');
-            setTimeout(async () => {
-                await speak("Welcome to SafeVision. Your visual assistant is ready.", 'fullInfo'); 
-                console.log('[Main] "Welcome to SafeVision" spoken (or attempted).');
+            // --- New Speech Pattern Implementation ---
+            // 1. Speak Welcome Message
+            console.log('[Main] Speaking "Welcome to SafeVision."');
+            await speak("Welcome to SafeVision. Your visual assistant is ready.", 'initialWelcome'); // Use a new type 'initialWelcome' to bypass cooldown
+            speaking = false; // Manually reset speaking flag after initial welcome
+            updateDebugInfo();
+            console.log('[Main] "Welcome to SafeVision" spoken. Speaking flag reset.');
 
-                console.log('[Main] Setting up Speech Recognition...');
-                setupSpeechRecognition();
-                console.log('[Main] Starting continuous recognition...');
-                startContinuousRecognition();
-                
-                console.log('[Main] Starting periodic full information speaking...');
-                speakFullInformation(); 
-                fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
-                console.log("[Main] Periodic full information speaking started.");
-                
-                console.log('[Main] Starting object detection loop...');
-                detectFrame(); 
-                console.log('[Main] App initialization complete.');
-            }, 1000); // 1 second delay for initial welcome speech, allowing ResponsiveVoice to load fully
+            // 2. Speak Full Information Immediately After Welcome
+            console.log('[Main] Speaking full information immediately after welcome.');
+            await speakFullInformation(true); // Pass true to force immediate speech, bypassing cooldown
+            speaking = false; // Reset speaking flag after this speech
+            updateDebugInfo();
+            console.log('[Main] Initial full information spoken. Speaking flag reset.');
+
+            // 3. Set up periodic full information speaking (now every 30 seconds)
+            console.log('[Main] Setting up periodic full information speaking (every 30 seconds).');
+            clearInterval(fullInfoIntervalId); // Clear any old interval
+            fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); // Now uses 30s cooldown
+            console.log("[Main] Periodic full information speaking started.");
+            // --- End New Speech Pattern Implementation ---
+            
+            console.log('[Main] Setting up Speech Recognition...');
+            setupSpeechRecognition();
+            console.log('[Main] Starting continuous recognition...');
+            startContinuousRecognition();
+            
+            console.log('[Main] Starting object detection loop...');
+            detectFrame(); 
+            console.log('[Main] App initialization complete.');
         }
 
-        document.addEventListener('DOMContentLoaded', main);
+        window.onload = main; // Use window.onload to ensure all resources are loaded
     </script>
 </body>
 </html>
