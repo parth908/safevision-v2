@@ -161,7 +161,8 @@
         <div>Muted: <span id="debugMuted">false</span></div>
         <div>Video Ready: <span id="debugVideoReady">false</span></div>
         <div>Model Loaded: <span id="debugModelLoaded">false</span></div>
-        <div>Voices: <span id="debugVoiceCount">0</span></div> <!-- New debug element -->
+        <div>Voices (Native): <span id="debugVoiceCount">0</span></div> <!-- Native voices -->
+        <div>ResponsiveVoice: <span id="debugResponsiveVoiceStatus">Loading...</span></div> <!-- New ResponsiveVoice status -->
     </div>
 
     <!-- Detection Activity Indicator -->
@@ -176,6 +177,11 @@
     <!-- TensorFlow.js and COCO-SSD Model Libraries from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    
+    <!-- ResponsiveVoice.js for fallback/primary TTS -->
+    <!-- IMPORTANT: Replace 'YOUR_API_KEY' with your actual ResponsiveVoice API Key if you have one. 
+         For non-commercial/testing use, you might be able to use a default or get a free one from responsivevoice.org -->
+    <script src="https://code.responsivevoice.org/responsivevoice.js?key=YOUR_API_KEY"></script> 
 
     <script>
         // --- DOM Elements ---
@@ -192,11 +198,12 @@
         // New debug info elements
         const debugStateEl = document.getElementById('debugState');
         const debugSpeakingEl = document.getElementById('debugSpeaking');
-        const debugMutedEl = document.getElementById('debugMuted');
+        const debugMutedEl = document.getElementById('Muted'); // Corrected ID
         const debugVideoReadyEl = document.getElementById('debugVideoReady');
         const debugModelLoadedEl = document.getElementById('debugModelLoaded');
-        const debugVoiceCountEl = document.getElementById('debugVoiceCount'); // New debug element
-        const detectionActivityEl = document.getElementById('detectionActivity'); // New detection indicator
+        const debugVoiceCountEl = document.getElementById('debugVoiceCount'); 
+        const debugResponsiveVoiceStatusEl = document.getElementById('debugResponsiveVoiceStatus'); // New element
+        const detectionActivityEl = document.getElementById('detectionActivity'); 
 
         // Group all UI elements that should hide during simulation
         const uiElementsToHide = document.querySelectorAll('.ui-element');
@@ -221,10 +228,11 @@
             debugStateEl.textContent = currentRecognitionState;
             debugSpeakingEl.textContent = speaking;
             debugMutedEl.textContent = isMuted;
-            debugVideoReadyEl.textContent = video.readyState >= 2; // Check if video is ready
-            debugModelLoadedEl.textContent = !!model; // Check if model object exists
-            debugVoiceCountEl.textContent = speechSynthesis.getVoices().length; // Update voice count
-            console.log(`[Debug Info Update] State: ${currentRecognitionState}, Speaking: ${speaking}, Muted: ${isMuted}, Video Ready: ${video.readyState >= 2}, Model Loaded: ${!!model}, Voices: ${speechSynthesis.getVoices().length}`);
+            debugVideoReadyEl.textContent = video.readyState >= 2; 
+            debugModelLoadedEl.textContent = !!model; 
+            debugVoiceCountEl.textContent = speechSynthesis.getVoices().length; 
+            debugResponsiveVoiceStatusEl.textContent = typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled() ? 'Ready' : 'Not Ready'; // Update ResponsiveVoice status
+            console.log(`[Debug Info Update] State: ${currentRecognitionState}, Speaking: ${speaking}, Muted: ${isMuted}, Video Ready: ${video.readyState >= 2}, Model Loaded: ${!!model}, Voices (Native): ${speechSynthesis.getVoices().length}, ResponsiveVoice: ${debugResponsiveVoiceStatusEl.textContent}`);
         }
 
         // --- Service Worker ---
@@ -235,7 +243,6 @@
                 const swPath = 'service-worker.js';
                 console.log('[Service Worker Debug] Service Worker script path:', swPath);
 
-                // Only attempt to register if the protocol is http: or https:
                 if (location.protocol === 'https:' || location.protocol === 'http:') {
                     try {
                         navigator.serviceWorker.register(swPath)
@@ -260,7 +267,7 @@
             const now = new Date();
             datetimeEl.textContent = `📅 ${now.toDateString()} | ⏰ ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
         }
-        setInterval(updateDateTime, 1000); updateDateTime(); // Initial call
+        setInterval(updateDateTime, 1000); updateDateTime(); 
 
         // --- Camera Setup ---
         async function setupCamera() {
@@ -275,17 +282,17 @@
                     video.onloadedmetadata = () => {
                         console.log('[Camera Debug] Video metadata loaded. Playing video.');
                         video.play();
-                        video.classList.add('ready'); // Add class for green border
+                        video.classList.add('ready'); 
                         resizeCanvas();
-                        updateDebugInfo(); // Update debug info after video is ready
+                        updateDebugInfo(); 
                         resolve(video);
                     };
                 });
             } catch (error) {
                 console.error("Error accessing camera:", error);
-                statusEl.textContent = `Camera access denied or not available. (${error.name})`; // Removed emoji
+                statusEl.textContent = `Camera access denied or not available. (${error.name})`; 
                 statusEl.style.color = 'red';
-                updateDebugInfo(); // Update debug info on camera error
+                updateDebugInfo(); 
                 return null;
             }
         }
@@ -296,23 +303,21 @@
         }
 
         // --- Object Detection ---
-        const FRAMES_TO_SKIP = 2; // Process AI detection every 3rd frame (0, 1, 2 -> process 2)
+        const FRAMES_TO_SKIP = 2; 
         const PROXIMITY_THRESHOLD_HEIGHT = 450;
         async function detectFrame() {
-            // Set detection activity indicator to active
-            detectionActivityEl.classList.add('active');
+            detectionActivityEl.classList.add('active'); // Indicate activity
             
             if (video.readyState < 2) { 
                 console.log('[DetectFrame Debug] Video not ready (state:', video.readyState, '). Skipping frame.');
-                detectionActivityEl.classList.remove('active'); // Turn off if not processing
+                detectionActivityEl.classList.remove('active'); 
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
             
-            // Only process frames when not in simulation
             if (callSimulationOverlay.style.display !== 'none') { 
                 console.log('[DetectFrame Debug] In call simulation. Skipping frame.');
-                detectionActivityEl.classList.remove('active'); // Turn off if not processing
+                detectionActivityEl.classList.remove('active'); 
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
@@ -321,26 +326,26 @@
             try {
                 if (model) {
                     predictions = await model.detect(video);
-                    console.log('[DetectFrame Debug] Model.detect() called. Predictions count:', predictions.length); // Added log
+                    console.log('[DetectFrame Debug] Model.detect() called. Predictions count:', predictions.length); 
                 } else { 
                     console.log('[DetectFrame Debug] Model not loaded yet. Skipping frame.');
-                    detectionActivityEl.classList.remove('active'); // Turn off if not processing
+                    detectionActivityEl.classList.remove('active'); 
                     requestAnimationFrame(detectFrame); 
                     return; 
                 }
             } catch (e) { 
                 console.error("Error during model detection:", e);
-                detectionActivityEl.classList.remove('active'); // Turn off if error
+                detectionActivityEl.classList.remove('active'); 
                 requestAnimationFrame(detectFrame); 
                 return; 
             }
 
-            tf.tidy(() => { // Use tf.tidy for memory management
-                ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear previous drawings
+            tf.tidy(() => { 
+                ctx.clearRect(0, 0, canvas.width, canvas.height); 
                 
                 let personDetected = false;
-                let detectedObjectsText = "No objects detected."; // Removed emoji
-                window.detectedObjectsForGemini = []; // Reset for new frame
+                let detectedObjectsText = "No objects detected."; 
+                window.detectedObjectsForGemini = []; 
 
                 predictions.forEach(pred => {
                     if (pred.score > 0.6) {
@@ -349,8 +354,8 @@
                         ctx.fillStyle = "#00FF00"; ctx.font = '16px sans-serif';
                         ctx.fillText(`${pred.class} (${Math.round(pred.score * 100)}%)`, x, y > 10 ? y - 5 : 10);
                         
-                        detectedObjectsText = `I see a ${pred.class}`; // Removed emoji from display text
-                        window.detectedObjectsForGemini.push({ // Store for Gemini
+                        detectedObjectsText = `I see a ${pred.class}`; 
+                        window.detectedObjectsForGemini.push({ 
                             class: pred.class, score: pred.score, bbox: { x, y, width, height }
                         });
 
@@ -365,23 +370,21 @@
                     }
                 });
                 objectEl.textContent = detectedObjectsText;
-                proximityStatusEl.textContent = personDetected ? "Person detected" : "No person detected"; // Removed emoji from display text
-            }); // End tf.tidy
+                proximityStatusEl.textContent = personDetected ? "Person detected" : "No person detected"; 
+            }); 
 
-            // Keep detection activity indicator active if loop continues
             requestAnimationFrame(detectFrame);
         }
 
         // --- Speech Synthesis ---
         function stripEmojis(text) {
-            // Regex to remove common emoji ranges and symbols
             return text.replace(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g, '');
         }
 
         async function speak(text, type = 'fullInfo') {
-            const cleanedText = stripEmojis(text); // Always strip emojis before speaking
+            const cleanedText = stripEmojis(text);
             console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}"`);
-            updateDebugInfo(); // Update debug info on speak attempt
+            updateDebugInfo();
 
             if (isMuted && type !== 'emergency') { 
                 console.log(`[TTS Debug] Speech (${type}) blocked: Muted.`);
@@ -393,64 +396,106 @@
                 return;
             }
 
+            // Cancel any ongoing speech before starting new one
             if (speechSynthesis.speaking) {
-                console.log("[TTS Debug] speechSynthesis.speaking is true. Current utterance:", speechSynthesis.pending, speechSynthesis.speaking, speechSynthesis.paused);
-                if (type === 'emergency' || (type !== 'emergency' && speaking)) { 
-                    speechSynthesis.cancel();
-                    console.log("[TTS Debug] Cancelled ongoing speech.");
+                console.log("[TTS Debug] speechSynthesis.speaking is true. Cancelling current speech.");
+                speechSynthesis.cancel();
+            }
+            if (typeof responsiveVoice !== 'undefined' && responsiveVoice.speaking()) {
+                console.log("[TTS Debug] responsiveVoice.speaking is true. Cancelling current speech.");
+                responsiveVoice.cancel();
+            }
+
+            speaking = true; // Set speaking flag early
+            updateDebugInfo();
+
+            // --- Attempt ResponsiveVoice first ---
+            if (typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled()) {
+                console.log("[TTS Debug] Attempting to speak using ResponsiveVoice.");
+                try {
+                    // ResponsiveVoice doesn't have direct onstart/onend promises, use callbacks
+                    responsiveVoice.speak(cleanedText, "US English Female", {
+                        onstart: () => { console.log("[TTS Debug] ResponsiveVoice speech started."); },
+                        onend: () => {
+                            speaking = false;
+                            if (type === 'fullInfo') lastFullInfoSpeechTime = Date.now();
+                            else if (type === 'warning') lastWarningSpeechTime = Date.now();
+                            updateDebugInfo();
+                            console.log("[TTS Debug] ResponsiveVoice speech ended.");
+                        },
+                        onerror: (e) => {
+                            console.error("[TTS Debug] ResponsiveVoice error:", e);
+                            speaking = false;
+                            updateDebugInfo();
+                            // Fallback to native if ResponsiveVoice fails
+                            console.log("[TTS Debug] ResponsiveVoice failed, falling back to native SpeechSynthesis.");
+                            tryNativeSpeech(cleanedText, type);
+                        }
+                    });
+                    return; // ResponsiveVoice is handling it
+                } catch (e) {
+                    console.error("[TTS Debug] Error calling ResponsiveVoice.speak():", e);
+                    // Fall through to native speech if ResponsiveVoice call itself fails
                 }
-            }
-
-            const voices = speechSynthesis.getVoices();
-            console.log(`[TTS Debug] Found ${voices.length} voices when speak was called.`);
-            if (!voices.length) {
-                console.warn("[TTS Debug] No speech synthesis voices available on this device when speak was called. Cannot speak.");
-                statusEl.textContent = "Speech not available (no voices, check device settings)"; // More specific message
-                statusEl.style.color = 'red';
-                return;
-            }
-
-            const utterance = new SpeechSynthesisUtterance(cleanedText);
-            utterance.lang = "en-IN";
-            const indianVoice = voices.find(voice => voice.lang === 'en-IN' || voice.lang === 'en-GB' || voice.name.includes('India'));
-            if (indianVoice) {
-                utterance.voice = indianVoice;
-                console.log("[TTS Debug] Using voice:", indianVoice.name);
             } else {
-                console.warn("[TTS Debug] No specific Indian/GB English voice found, using default voice:", voices[0]?.name || 'N/A');
-                utterance.voice = voices[0]; // Use first available voice as fallback
+                console.warn("[TTS Debug] ResponsiveVoice not available or not enabled. Falling back to native SpeechSynthesis.");
             }
 
-            utterance.rate = 1.0; utterance.pitch = 1.0; utterance.volume = 1.0;
-            
-            return new Promise(resolve => {
+            // --- Fallback to Native SpeechSynthesis ---
+            function tryNativeSpeech(textToSpeak, originalType) {
+                const voices = speechSynthesis.getVoices();
+                console.log(`[TTS Debug] Native SpeechSynthesis: Found ${voices.length} voices.`);
+                if (!voices.length) {
+                    console.warn("[TTS Debug] Native SpeechSynthesis: No voices available. Cannot speak.");
+                    statusEl.textContent = "Speech not available (no voices, check device settings)"; 
+                    statusEl.style.color = 'red';
+                    speaking = false;
+                    updateDebugInfo();
+                    return;
+                }
+
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = "en-IN";
+                const indianVoice = voices.find(voice => voice.lang === 'en-IN' || voice.lang === 'en-GB' || voice.name.includes('India'));
+                if (indianVoice) {
+                    utterance.voice = indianVoice;
+                    console.log("[TTS Debug] Native SpeechSynthesis: Using voice:", indianVoice.name);
+                } else {
+                    console.warn("[TTS Debug] Native SpeechSynthesis: No specific Indian/GB English voice found, using default voice:", voices[0]?.name || 'N/A');
+                    utterance.voice = voices[0]; 
+                }
+
+                utterance.rate = 1.0; utterance.pitch = 1.0; utterance.volume = 1.0;
+                
                 utterance.onstart = () => { 
                     speaking = true; 
                     updateDebugInfo(); 
-                    console.log("[TTS Debug] Speech started for: " + cleanedText); 
+                    console.log("[TTS Debug] Native Speech started for: " + textToSpeak); 
                 };
                 utterance.onend = () => {
                     speaking = false;
-                    if (type === 'fullInfo') lastFullInfoSpeechTime = Date.now();
-                    else if (type === 'warning') lastWarningSpeechTime = Date.now();
-                    updateDebugInfo(); // Update debug info on speech end
-                    console.log("[TTS Debug] Speech ended for: " + cleanedText);
-                    resolve();
+                    if (originalType === 'fullInfo') lastFullInfoSpeechTime = Date.now();
+                    else if (originalType === 'warning') lastWarningSpeechTime = Date.now();
+                    updateDebugInfo(); 
+                    console.log("[TTS Debug] Native Speech ended for: " + textToSpeak);
                 };
                 utterance.onerror = (event) => { 
-                    console.error('[TTS Debug] SpeechSynthesisUtterance.onerror:', event.error, "for text:", cleanedText, event); 
+                    console.error('[TTS Debug] Native SpeechSynthesisUtterance.onerror:', event.error, "for text:", textToSpeak, event); 
                     speaking = false; 
-                    updateDebugInfo(); // Update debug info on speech error
-                    resolve(); 
+                    updateDebugInfo(); 
                 };
-                console.log("[TTS Debug] Calling speechSynthesis.speak().");
+                console.log("[TTS Debug] Calling native speechSynthesis.speak().");
                 speechSynthesis.speak(utterance);
-            });
+            }
+
+            // If ResponsiveVoice was attempted and didn't return, or failed, try native
+            if (!(typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled())) {
+                tryNativeSpeech(cleanedText, type);
+            }
         }
 
         function speakFullInformation() {
             console.log('[SpeakFullInfo Debug] Attempting to speak full information.');
-            // Only speak if not in simulation AND if in IDLE state (not processing Gemini)
             if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex') { 
                 const combinedText = `
                     Status: ${statusEl.textContent}.
@@ -473,19 +518,17 @@
         // --- Speech Recognition ---
         function setupSpeechRecognition() {
             console.log('[SR Debug] Setting up Speech Recognition.');
-            // Check for SpeechRecognition API compatibility
             const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 
             if (!SpeechRecognitionAPI) {
                 speechRecognitionStatusEl.innerHTML = "Voice commands not supported by your browser."; 
                 speechRecognitionStatusEl.style.color = 'red';
                 console.warn("Web Speech API (SpeechRecognition) not supported by this browser.");
-                // Disable any further attempts to use recognition
-                recognition = null; // Ensure recognition object is null
+                recognition = null; 
                 return;
             }
             
-            recognition = new SpeechRecognitionAPI(); // Use the detected API
+            recognition = new SpeechRecognitionAPI(); 
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'en-IN';
@@ -496,7 +539,6 @@
             };
             recognition.onend = () => {
                 console.log('[SR Debug] Recognition ended.');
-                // Only restart if should be continuous and not in an active Gemini state or simulation
                 if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'flex' && recognition.continuous) {
                     try { 
                         console.log('[SR Debug] Attempting to restart recognition.');
@@ -514,11 +556,10 @@
                     speak("Microphone permission denied. Voice commands are disabled.", 'emergency'); 
                     speechRecognitionStatusEl.innerHTML = "Mic permission denied!"; 
                     speechRecognitionStatusEl.style.color = 'red';
-                    recognition.continuous = false; // Stop trying to restart
+                    recognition.continuous = false; 
                 } else if (event.error === 'no-speech') {
                     console.log('[SR Debug] No speech detected.');
                 }
-                // recognition.onend will handle restart if continuous, unless 'not-allowed'
             };
 
             recognition.onresult = async (event) => {
@@ -548,13 +589,9 @@
                         } else if (transcript.includes("describe scene") || transcript.includes("what do you see")) {
                              getSceneDescriptionFromGemini();
                         } else if (transcript.includes("emergency")) {
-                            // Speak the combined instruction and simulation message
                             await speak(`Initiating simulated emergency call. For an actual direct emergency call, quickly press your phone's power button five times.`, 'emergency');
-                            
-                            // Stop core app functions and show simulation
                             showCallSimulation();
                         } else {
-                            // If no specific command, send to general Gemini assistant
                             await askGemini(transcript);
                         }
                     }
@@ -564,7 +601,7 @@
 
         function startContinuousRecognition() {
             console.log('[SR Debug] Calling startContinuousRecognition. Current state:', currentRecognitionState);
-            if (recognition && currentRecognitionState === 'IDLE') { // Ensure recognition object exists
+            if (recognition && currentRecognitionState === 'IDLE') { 
                 try {
                     recognition.continuous = true;
                     recognition.interimResults = true;
@@ -586,10 +623,11 @@
                 return;
             }
             currentRecognitionState = 'PROCESSING_GEMINI';
-            updateDebugInfo(); // Update debug info on state change
-            clearInterval(fullInfoIntervalId); // Pause periodic info
-            if (recognition) { recognition.stop(); } // Stop continuous listening
-            speechSynthesis.cancel(); // Cancel any existing speech
+            updateDebugInfo(); 
+            clearInterval(fullInfoIntervalId); 
+            if (recognition) { recognition.stop(); } 
+            speechSynthesis.cancel(); 
+            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); // Also cancel ResponsiveVoice
             
             speechRecognitionStatusEl.innerHTML = 'Generating description...'; 
             await speak("Generating scene description, please wait.", 'emergency'); 
@@ -627,7 +665,7 @@
 
                 const chatHistory = [{ role: "user", parts: [{ text: promptText }] }];
                 const payload = { contents: chatHistory };
-                const apiKey = ""; // API key is provided by Canvas runtime
+                const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -652,12 +690,12 @@
             } finally {
                 setTimeout(() => {
                     currentRecognitionState = 'IDLE';
-                    updateDebugInfo(); // Update debug info on state change
+                    updateDebugInfo(); 
                     startContinuousRecognition();
                     clearInterval(fullInfoIntervalId); 
                     fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
                     console.log("[SR Debug] Full info speaking resumed after Gemini.");
-                }, 1000); // 1-second delay
+                }, 1000); 
             }
         }
 
@@ -668,23 +706,24 @@
                 return;
             }
 
-            currentRecognitionState = 'PROCESSING_GEMINI_ASSISTANT'; // New state for general assistant
-            updateDebugInfo(); // Update debug info on state change
-            clearInterval(fullInfoIntervalId); // Pause periodic info
+            currentRecognitionState = 'PROCESSING_GEMINI_ASSISTANT'; 
+            updateDebugInfo(); 
+            clearInterval(fullInfoIntervalId); 
             if (recognition) {
-                recognition.stop(); // Stop continuous listening
+                recognition.stop(); 
             }
-            speechSynthesis.cancel(); // Cancel any existing speech
+            speechSynthesis.cancel(); 
+            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); // Also cancel ResponsiveVoice
 
             speechRecognitionStatusEl.innerHTML = 'Thinking...'; 
             await speak("Thinking.", 'emergency'); 
 
             try {
                 let chatHistory = [];
-                chatHistory.push({ role: "user", parts: [{ text: userQuestion }] }); // User's question directly
+                chatHistory.push({ role: "user", parts: [{ text: userQuestion }] }); 
 
                 const payload = { contents: chatHistory };
-                const apiKey = ""; // API key is provided by Canvas runtime
+                const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -713,47 +752,36 @@
                 console.error("[Gemini Assistant] Error asking Gemini:", error);
                 await speak("I encountered an error. Please check your internet connection.", 'emergency'); 
             } finally {
-                // Ensure recognition and periodic info resume after a short delay to let speech finish
                 setTimeout(() => {
                     currentRecognitionState = 'IDLE';
-                    updateDebugInfo(); // Update debug info on state change
+                    updateDebugInfo(); 
                     startContinuousRecognition();
                     clearInterval(fullInfoIntervalId); 
                     fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
                     console.log("[SR Debug] Full info speaking resumed after Gemini assistant.");
-                }, 1000); // 1-second delay
+                }, 1000); 
             }
         }
 
         // --- Call Simulation Functions ---
         function showCallSimulation() {
-            // Hide all standard UI elements
             uiElementsToHide.forEach(el => el.classList.add('hidden'));
-            
-            // Show the call simulation overlay
             callSimulationOverlay.style.display = 'flex'; 
             console.log(`[Simulation] Call simulation started for ${CALL_SIMULATION_DURATION / 1000} seconds.`);
-
-            // Set timeout to automatically hide the simulation
             callSimulationTimeoutId = setTimeout(hideCallSimulation, CALL_SIMULATION_DURATION);
         }
 
         function hideCallSimulation() {
-            clearTimeout(callSimulationTimeoutId); // Clear any pending automatic hide
-            callSimulationOverlay.style.display = 'none'; // Hide the overlay
+            clearTimeout(callSimulationTimeoutId); 
+            callSimulationOverlay.style.display = 'none'; 
             console.log("[Simulation] Call simulation ended.");
-            
-            // Show all standard UI elements
             uiElementsToHide.forEach(el => el.classList.remove('hidden'));
-
-            // Resume main app functionalities
-            startContinuousRecognition(); // Resume speech recognition
-            clearInterval(fullInfoIntervalId); // Clear old interval if it's running
-            fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); // Start periodic info speaking
+            startContinuousRecognition(); 
+            clearInterval(fullInfoIntervalId); 
+            fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); 
             console.log("[Simulation] App functionalities resumed.");
         }
 
-        // Add event listener to the overlay to hide it on any tap/click
         callSimulationOverlay.addEventListener('click', hideCallSimulation);
 
 
@@ -761,72 +789,85 @@
         async function main() {
             console.log('[Main] App starting...');
             statusEl.textContent = "Loading AI model... SafeVision"; 
-            updateDebugInfo(); // Initial debug info update
+            updateDebugInfo(); 
             
-            // Test immediate speech (before waiting for voices to be fully loaded)
-            console.log('[Main] Attempting very early speech test: "App is starting."');
-            try {
-                const testUtterance = new SpeechSynthesisUtterance("App is starting.");
-                testUtterance.lang = "en-US"; // Use a common language for this test
-                testUtterance.volume = 0.5; // Lower volume for test
-                speechSynthesis.speak(testUtterance);
-                console.log('[Main] Very early speech test initiated.');
-            } catch (e) {
-                console.error('[Main] Error during very early speech test:', e);
-            }
-
-
-            // First, wait for SpeechSynthesis voices to be ready
-            console.log('[Main] Waiting for SpeechSynthesis voices...');
+            // Wait for ResponsiveVoice to be ready
+            console.log('[Main] Waiting for ResponsiveVoice to be ready...');
             await new Promise(resolve => {
-                // Listener for voiceschanged event
-                speechSynthesis.onvoiceschanged = () => {
-                    console.log("[Main] Voices loaded via onvoiceschanged event. Count:", speechSynthesis.getVoices().length);
-                    updateDebugInfo(); // Update voice count immediately when voices are available
+                // ResponsiveVoice has its own ready callback
+                if (typeof responsiveVoice !== 'undefined' && responsiveVoice.enabled()) {
+                    console.log("[Main] ResponsiveVoice is immediately ready.");
+                    updateDebugInfo();
                     resolve();
-                };
-                
-                // Check immediately if voices are already loaded (can happen if event fired before listener attached)
-                if (speechSynthesis.getVoices().length > 0) {
-                    console.log("[Main] Voices available immediately. Count:", speechSynthesis.getVoices().length);
-                    updateDebugInfo(); // Update voice count
-                    resolve();
-                } else {
-                    // Fallback timeout in case voiceschanged doesn't fire or no voices are ever found
-                    setTimeout(() => {
-                        if (speechSynthesis.getVoices().length === 0) {
-                            console.warn("[Main] Voices not loaded after 2s timeout. Proceeding anyway, but speech might be silent.");
-                            statusEl.textContent = "Speech not available (no voices, check device settings)"; // Updated message
-                            statusEl.style.color = 'orange';
+                } else if (typeof responsiveVoice !== 'undefined') {
+                    // If ResponsiveVoice script loaded but not enabled yet, wait for its internal ready state
+                    const checkResponsiveVoice = setInterval(() => {
+                        if (responsiveVoice.enabled()) {
+                            console.log("[Main] ResponsiveVoice became ready.");
+                            clearInterval(checkResponsiveVoice);
+                            updateDebugInfo();
+                            resolve();
                         }
-                        updateDebugInfo(); // Update voice count after timeout
-                        resolve();
-                    }, 2000); // 2 second fallback timeout
+                    }, 100); // Check every 100ms
+                    setTimeout(() => {
+                        if (!responsiveVoice.enabled()) {
+                            console.warn("[Main] ResponsiveVoice not ready after 5s timeout. Proceeding without it.");
+                            updateDebugInfo();
+                            resolve();
+                        }
+                    }, 5000); // 5 second timeout for ResponsiveVoice
+                } else {
+                    console.warn("[Main] ResponsiveVoice script not loaded. Proceeding without it.");
+                    updateDebugInfo();
+                    resolve(); // Resolve immediately if script isn't there
                 }
             });
-            console.log('[Main] SpeechSynthesis voices ready (or timeout reached). Final voice count:', speechSynthesis.getVoices().length);
-            updateDebugInfo(); // Final update after voice loading promise resolves
+            console.log('[Main] ResponsiveVoice ready status checked. Proceeding.');
 
-            // Proceed with camera and model setup after voices are ready (or attempted)
+            // Also wait for native SpeechSynthesis voices (for fallback)
+            console.log('[Main] Waiting for Native SpeechSynthesis voices (for fallback)...');
+            await new Promise(resolve => {
+                speechSynthesis.onvoiceschanged = () => {
+                    console.log("[Main] Native Voices loaded via onvoiceschanged event. Count:", speechSynthesis.getVoices().length);
+                    updateDebugInfo(); 
+                    resolve();
+                };
+                if (speechSynthesis.getVoices().length > 0) {
+                    console.log("[Main] Native Voices available immediately. Count:", speechSynthesis.getVoices().length);
+                    updateDebugInfo(); 
+                    resolve();
+                } else {
+                    setTimeout(() => {
+                        if (speechSynthesis.getVoices().length === 0) {
+                            console.warn("[Main] Native Voices not loaded after 2s timeout. SpeechSynthesis might not work.");
+                            statusEl.textContent = "Native Speech not ready (no voices)"; 
+                            statusEl.style.color = 'orange';
+                        }
+                        updateDebugInfo(); 
+                        resolve();
+                    }, 2000); 
+                }
+            });
+            console.log('[Main] Native SpeechSynthesis voices ready status checked. Final voice count:', speechSynthesis.getVoices().length);
+            updateDebugInfo(); 
+
             console.log('[Main] Setting up camera...');
             await setupCamera();
             if (!video.srcObject) {
                 console.error('[Main] Camera setup failed. Exiting main function.');
-                return; // Exit if camera failed
+                return; 
             }
             console.log('[Main] Camera setup complete.');
 
             console.log('[Main] Loading COCO-SSD model...');
             model = await cocoSsd.load({base: 'lite_mobilenet_v2'});
             statusEl.textContent = "AI model loaded!"; 
-            updateDebugInfo(); // Update debug info after model is loaded
+            updateDebugInfo(); 
             console.log("[Main] AI model loaded. Initializing speech recognition.");
 
-            // THIS IS THE LINE THAT SAYS "WELCOME TO SAFEVISION"
             console.log('[Main] Attempting to speak "Welcome to SafeVision."');
-            // Give a small delay to ensure TTS engine is fully ready after voice loading
             setTimeout(async () => {
-                await speak("Welcome to SafeVision.", 'fullInfo'); 
+                await speak("Welcome to SafeVision. Your visual assistant is ready.", 'fullInfo'); // More descriptive welcome
                 console.log('[Main] "Welcome to SafeVision" spoken (or attempted).');
 
                 console.log('[Main] Setting up Speech Recognition...');
@@ -835,17 +876,16 @@
                 startContinuousRecognition();
                 
                 console.log('[Main] Starting periodic full information speaking...');
-                speakFullInformation(); // Initial call to speak full info after welcome
+                speakFullInformation(); 
                 fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
                 console.log("[Main] Periodic full information speaking started.");
                 
                 console.log('[Main] Starting object detection loop...');
-                detectFrame(); // Start the continuous object detection loop
+                detectFrame(); 
                 console.log('[Main] App initialization complete.');
-            }, 500); // 500ms delay for initial welcome speech
+            }, 1000); // 1 second delay for initial welcome speech, allowing ResponsiveVoice to load fully
         }
 
-        // Start the application once the DOM is fully loaded
         document.addEventListener('DOMContentLoaded', main);
     </script>
 </body>
