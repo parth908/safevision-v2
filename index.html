@@ -212,11 +212,11 @@
         let model, recognition, fullInfoIntervalId;
         let speaking = false;
         let isMuted = false;
-        let lastSpokenFullInfo = "";
+        let lastSpokenDynamicInfo = ""; // Renamed to reflect dynamic info
         // Cooldown for periodic info updates (30 seconds as requested)
-        const SPEECH_COOLDOWN_FULL_INFO = 30000; 
+        const SPEECH_COOLDOWN_DYNAMIC_INFO = 30000; // Renamed for clarity
         const SPEECH_COOLDOWN_WARNING = 3000; // 3 seconds cooldown for proximity warnings
-        let lastFullInfoSpeechTime = 0; // Timestamp of last full info speech
+        let lastDynamicInfoSpeechTime = 0; // Renamed for clarity
         let lastWarningSpeechTime = 0; // Timestamp of last warning speech
         const CALL_SIMULATION_DURATION = 3000; // 3 seconds for screenshot display
         let callSimulationTimeoutId; // Timeout ID for the call simulation auto-hide
@@ -378,22 +378,22 @@
                     }
                 });
 
-                // Update global warning state and potentially trigger full info if warning clears
+                // Update global warning state and potentially trigger dynamic info if warning clears
                 if (personDetectedAndCloseThisFrame && !currentProximityWarningActive) {
                     // Warning just became active
                     currentProximityWarningActive = true;
-                    console.log("[DetectFrame Debug] Proximity warning became active. Pausing full info interval.");
+                    console.log("[DetectFrame Debug] Proximity warning became active. Pausing dynamic info interval.");
                     clearInterval(fullInfoIntervalId); // Pause periodic info when warning is active
                 } else if (!personDetectedAndCloseThisFrame && currentProximityWarningActive) {
                     // Warning just cleared
                     currentProximityWarningActive = false;
-                    console.log("[DetectFrame Debug] Proximity warning cleared. Attempting to resume full info.");
-                    // Immediately speak full info once warning is gone, if not temporarily stopped by user
+                    console.log("[DetectFrame Debug] Proximity warning cleared. Attempting to resume dynamic info.");
+                    // Immediately speak dynamic info once warning is gone, if not temporarily stopped by user
                     if (currentRecognitionState === 'IDLE' && !speechTemporarilyStoppedByUser) {
-                        speakFullInformation(true); // Force immediate update
+                        speakDynamicInfo(true); // Force immediate update
                         // Restart periodic interval after immediate update
                         clearInterval(fullInfoIntervalId); 
-                        fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                        fullInfoIntervalId = setInterval(speakDynamicInfo, SPEECH_COOLDOWN_DYNAMIC_INFO);
                     }
                 }
                 
@@ -424,32 +424,32 @@
             console.log('[TTS Debug] All speech cancelled. speechTemporarilyStoppedByUser set to TRUE.');
         }
 
-        async function speak(text, type = 'fullInfo') {
+        async function speak(text, type = 'dynamicInfo') { // Default type changed to dynamicInfo
             const cleanedText = stripEmojis(text);
             console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}". Current 'speaking' status: ${speaking}, isMuted: ${isMuted}, speechTemporarilyStoppedByUser: ${speechTemporarilyStoppedByUser}`);
             updateDebugInfo();
 
-            // Allow emergency and warning speech even if muted
-            if (isMuted && type !== 'emergency' && type !== 'warning') { 
-                console.log(`[TTS Debug] Speech (${type}) blocked: Muted.`);
+            // Allow emergency and warning speech even if muted or temporarily stopped
+            if ((isMuted || speechTemporarilyStoppedByUser) && type !== 'emergency' && type !== 'warning' && type !== 'initialWelcome' && type !== 'initialStaticInfo') { 
+                console.log(`[TTS Debug] Speech (${type}) blocked: Muted or Temporarily stopped by user.`);
                 return;
             }
             
-            // Block speech if temporarily stopped by user, unless it's emergency or warning
-            if (speechTemporarilyStoppedByUser && type !== 'emergency' && type !== 'warning') {
-                console.log(`[TTS Debug] Speech (${type}) blocked: Temporarily stopped by user.`);
-                return;
-            }
-
             // Check cooldowns and 'speaking' flag for non-emergency/non-warning speech
-            if (type !== 'emergency' && type !== 'warning' && speaking) {
+            if (type !== 'emergency' && type !== 'warning' && type !== 'initialWelcome' && type !== 'initialStaticInfo' && speaking) {
                 console.log(`[TTS Debug] Speech (${type}) blocked: Already speaking.`);
                 return;
             }
-            if (type !== 'emergency' && type !== 'warning' && (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO))) {
-                console.log(`[TTS Debug] Speech (${type}) blocked: Cooldown active. Last Full Info: ${lastFullInfoSpeechTime}, Last Warning: ${lastWarningSpeechTime}`);
+            if (type !== 'emergency' && type !== 'warning' && type !== 'initialWelcome' && type !== 'initialStaticInfo' && (Date.now() - lastDynamicInfoSpeechTime < SPEECH_COOLDOWN_DYNAMIC_INFO)) {
+                console.log(`[TTS Debug] Speech (${type}) blocked: Cooldown active. Last Dynamic Info: ${lastDynamicInfoSpeechTime}`);
                 return;
             }
+            // Warning speech has its own cooldown
+            if (type === 'warning' && (Date.now() - lastWarningSpeechTime < SPEECH_COOLDOWN_WARNING)) {
+                console.log(`[TTS Debug] Speech (${type}) blocked: Warning cooldown active. Last Warning: ${lastWarningSpeechTime}`);
+                return;
+            }
+
 
             // Cancel any ongoing speech before starting new one (native or ResponsiveVoice)
             if (speechSynthesis.speaking) {
@@ -473,7 +473,7 @@
                         onstart: () => { console.log("[TTS Debug] ResponsiveVoice speech started."); },
                         onend: () => {
                             speaking = false;
-                            if (type === 'fullInfo') lastFullInfoSpeechTime = Date.now();
+                            if (type === 'dynamicInfo') lastDynamicInfoSpeechTime = Date.now();
                             else if (type === 'warning') lastWarningSpeechTime = Date.now();
                             updateDebugInfo();
                             console.log("[TTS Debug] ResponsiveVoice speech ended. 'speaking' flag set to FALSE.");
@@ -528,7 +528,7 @@
                 };
                 utterance.onend = () => {
                     speaking = false;
-                    if (originalType === 'fullInfo') lastFullInfoSpeechTime = Date.now();
+                    if (originalType === 'dynamicInfo') lastDynamicInfoSpeechTime = Date.now();
                     else if (originalType === 'warning') lastWarningSpeechTime = Date.now();
                     updateDebugInfo(); 
                     console.log("[TTS Debug] Native Speech ended for: " + textToSpeak + ". 'speaking' flag set to FALSE.");
@@ -549,43 +549,62 @@
             }
         }
 
-        // Added a new parameter `forceSpeak` to bypass cooldown for initial immediate call
-        function speakFullInformation(forceSpeak = false) {
-            console.log('[SpeakFullInfo Debug] Attempting to speak full information. ForceSpeak:', forceSpeak);
+        // New function to speak only initial static information
+        function speakInitialStaticInfo(forceSpeak = false) {
+            console.log('[SpeakInitialStaticInfo Debug] Attempting to speak initial static information. ForceSpeak:', forceSpeak);
             if (currentRecognitionState !== 'IDLE') { 
-                console.log(`[SpeakFullInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState}.`);
+                console.log(`[SpeakInitialStaticInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState}.`);
                 return;
             }
             if (callSimulationOverlay.style.display !== 'none') { 
-                console.log(`[SpeakFullInfo Debug] Not speaking: In call simulation.`);
-                return;
-            }
-            // New check: if a proximity warning is active, defer full info unless forced
-            if (currentProximityWarningActive && !forceSpeak) {
-                console.log(`[SpeakFullInfo Debug] Not speaking: Proximity warning is active.`);
-                return;
-            }
-            // New check: if speech is temporarily stopped by user, defer full info unless forced
-            if (speechTemporarilyStoppedByUser && !forceSpeak) {
-                console.log(`[SpeakFullInfo Debug] Not speaking: Speech temporarily stopped by user.`);
+                console.log(`[SpeakInitialStaticInfo Debug] Not speaking: In call simulation.`);
                 return;
             }
 
-
-            const combinedText = `
+            const staticText = `
                 Status: ${statusEl.textContent}.
                 Weather: ${weatherEl.textContent}.
                 Date and Time: ${datetimeEl.textContent}.
+            `.replace(/\s+/g, ' ').trim();
+            
+            speak(staticText, 'initialStaticInfo'); // Use a specific type for initial static info
+        }
+
+
+        // Renamed and modified to speak only dynamic info (objects and proximity)
+        function speakDynamicInfo(forceSpeak = false) {
+            console.log('[SpeakDynamicInfo Debug] Attempting to speak dynamic information. ForceSpeak:', forceSpeak);
+            if (currentRecognitionState !== 'IDLE') { 
+                console.log(`[SpeakDynamicInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState}.`);
+                return;
+            }
+            if (callSimulationOverlay.style.display !== 'none') { 
+                console.log(`[SpeakDynamicInfo Debug] Not speaking: In call simulation.`);
+                return;
+            }
+            // New check: if a proximity warning is active, defer dynamic info unless forced
+            if (currentProximityWarningActive && !forceSpeak) {
+                console.log(`[SpeakDynamicInfo Debug] Not speaking: Proximity warning is active.`);
+                return;
+            }
+            // New check: if speech is temporarily stopped by user, defer dynamic info unless forced
+            if (speechTemporarilyStoppedByUser && !forceSpeak) {
+                console.log(`[SpeakDynamicInfo Debug] Not speaking: Speech temporarily stopped by user.`);
+                return;
+            }
+
+
+            const dynamicText = `
                 Object detection: ${objectEl.textContent}.
                 Proximity status: ${proximityStatusEl.textContent}.
             `.replace(/\s+/g, ' ').trim();
             
-            if (forceSpeak || combinedText !== lastSpokenFullInfo || (Date.now() - lastFullInfoSpeechTime >= SPEECH_COOLDOWN_FULL_INFO)) {
-                console.log("[SpeakFullInfo Debug] Full info text changed or cooldown passed or forced. Attempting to speak.");
-                speak(combinedText, 'fullInfo');
-                lastSpokenFullInfo = combinedText;
+            if (forceSpeak || dynamicText !== lastSpokenDynamicInfo || (Date.now() - lastDynamicInfoSpeechTime >= SPEECH_COOLDOWN_DYNAMIC_INFO)) {
+                console.log("[SpeakDynamicInfo Debug] Dynamic info text changed or cooldown passed or forced. Attempting to speak.");
+                speak(dynamicText, 'dynamicInfo');
+                lastSpokenDynamicInfo = dynamicText;
             } else {
-                console.log('[SpeakFullInfo Debug] Text is the same as last time or cooldown not passed, skipping speech.');
+                console.log('[SpeakDynamicInfo Debug] Text is the same as last time or cooldown not passed, skipping speech.');
             }
         }
 
@@ -643,19 +662,22 @@
                     const transcript = results[i][0].transcript.toLowerCase().trim();
                     const isFinal = results[i].isFinal;
 
+                    console.log(`[SR Debug] Raw Transcript (${isFinal ? 'Final' : 'Interim'}): "${transcript}"`); // Log all transcripts
+
                     if (!isFinal) {
                         speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Listening: ${transcript}...`;
                         continue;
                     }
 
-                    console.log('[SR Debug] Final transcript:', transcript);
+                    console.log('[SR Debug] Final transcript processed:', transcript);
 
                     if (isFinal && currentRecognitionState === 'IDLE') {
                         if (transcript.includes("mute")) {
                             isMuted = true;
                             // Ensure speech is stopped immediately when muting
                             stopSpeaking(); 
-                            speechTemporarilyStoppedByUser = true; // Mute also implies temporary stop
+                            // Mute also implies temporary stop, so periodic info is paused
+                            speechTemporarilyStoppedByUser = true; 
                             await speak("Muted.", 'emergency'); 
                             speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Muted | Listening for commands...`;
                             updateDebugInfo();
@@ -665,11 +687,11 @@
                             await speak("Unmuted.", 'emergency'); 
                             speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Listening for commands...`;
                             updateDebugInfo();
-                            // Immediately speak full info if no warning is active after unmute
+                            // Immediately speak dynamic info if no warning is active after unmute
                             if (!currentProximityWarningActive) {
-                                speakFullInformation(true); 
+                                speakDynamicInfo(true); // Force immediate update
                                 clearInterval(fullInfoIntervalId); 
-                                fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                                fullInfoIntervalId = setInterval(speakDynamicInfo, SPEECH_COOLDOWN_DYNAMIC_INFO);
                             }
                         } else if (transcript.includes("stop")) {
                             stopSpeaking(); // Immediately stop all speech
@@ -780,12 +802,12 @@
                     currentRecognitionState = 'IDLE';
                     updateDebugInfo(); 
                     startContinuousRecognition();
-                    // Resume periodic info if no warning is active AND not temporarily stopped by user
+                    // Resume periodic dynamic info if no warning is active AND not temporarily stopped by user
                     if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) {
                         clearInterval(fullInfoIntervalId); 
-                        fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                        fullInfoIntervalId = setInterval(speakDynamicInfo, SPEECH_COOLDOWN_DYNAMIC_INFO);
                     }
-                    console.log("[SR Debug] Full info speaking resumed after Gemini.");
+                    console.log("[SR Debug] Dynamic info speaking resumed after Gemini.");
                 }, 1000); 
             }
         }
@@ -846,12 +868,12 @@
                     currentRecognitionState = 'IDLE';
                     updateDebugInfo(); 
                     startContinuousRecognition();
-                    // Resume periodic info if no warning is active AND not temporarily stopped by user
+                    // Resume periodic dynamic info if no warning is active AND not temporarily stopped by user
                     if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) {
                         clearInterval(fullInfoIntervalId); 
-                        fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                        fullInfoIntervalId = setInterval(speakDynamicInfo, SPEECH_COOLDOWN_DYNAMIC_INFO);
                     }
-                    console.log("[SR Debug] Full info speaking resumed after Gemini assistant.");
+                    console.log("[SR Debug] Dynamic info speaking resumed after Gemini assistant.");
                 }, 1000); 
             }
         }
@@ -885,10 +907,10 @@
 
             // Resume main app functionalities
             startContinuousRecognition(); 
-            // Resume periodic info if no warning is active AND not temporarily stopped by user
+            // Resume periodic dynamic info if no warning is active AND not temporarily stopped by user
             if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) {
                 clearInterval(fullInfoIntervalId); 
-                fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); 
+                fullInfoIntervalId = setInterval(speakDynamicInfo, SPEECH_COOLDOWN_DYNAMIC_INFO); 
             }
             console.log("[Simulation] App functionalities resumed.");
         }
@@ -985,18 +1007,18 @@
             updateDebugInfo();
             console.log('[Main] "Welcome to SafeVision" spoken. Speaking flag reset.');
 
-            // 2. Speak Full Information Immediately After Welcome
-            console.log('[Main] Speaking full information immediately after welcome.');
-            await speakFullInformation(true); // Pass true to force immediate speech, bypassing cooldown
+            // 2. Speak Initial Static Information
+            console.log('[Main] Speaking initial static information.');
+            await speakInitialStaticInfo(true); // Force immediate speech
             speaking = false; // Reset speaking flag after this speech
             updateDebugInfo();
-            console.log('[Main] Initial full information spoken. Speaking flag reset.');
+            console.log('[Main] Initial static information spoken. Speaking flag reset.');
 
-            // 3. Set up periodic full information speaking (now every 30 seconds)
-            console.log('[Main] Setting up periodic full information speaking (every 30 seconds).');
+            // 3. Set up periodic dynamic information speaking (now every 30 seconds)
+            console.log('[Main] Setting up periodic dynamic information speaking (every 30 seconds).');
             clearInterval(fullInfoIntervalId); // Clear any old interval
-            fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); // Now uses 30s cooldown
-            console.log("[Main] Periodic full information speaking started.");
+            fullInfoIntervalId = setInterval(speakDynamicInfo, SPEECH_COOLDOWN_DYNAMIC_INFO); // Now calls dynamic info
+            console.log("[Main] Periodic dynamic information speaking started.");
             // --- End New Speech Pattern Implementation ---
             
             console.log('[Main] Setting up Speech Recognition...');
