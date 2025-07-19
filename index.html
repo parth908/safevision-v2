@@ -223,6 +223,7 @@
         
         // State management for speech recognition and Gemini processing
         let currentRecognitionState = 'IDLE'; // States: 'IDLE', 'PROCESSING_GEMINI', 'PROCESSING_GEMINI_ASSISTANT'
+        let currentProximityWarningActive = false; // New flag to track active warning
 
         // --- Debug UI Update Function ---
         function updateDebugInfo() {
@@ -305,7 +306,7 @@
 
         // --- Object Detection ---
         const FRAMES_TO_SKIP = 2; 
-        const PROXIMITY_THRESHOLD_HEIGHT = 380; // Adjusted to 380 pixels (from 450)
+        const PROXIMITY_THRESHOLD_HEIGHT = 380; // Adjusted to 380 pixels
         async function detectFrame() {
             // Set detection activity indicator to active
             detectionActivityEl.classList.add('active');
@@ -345,7 +346,7 @@
             tf.tidy(() => { 
                 ctx.clearRect(0, 0, canvas.width, canvas.height); 
                 
-                let personDetected = false;
+                let personDetectedAndCloseThisFrame = false; // Flag for current frame's warning status
                 let detectedObjectsText = "No objects detected."; 
                 window.detectedObjectsForGemini = []; 
 
@@ -362,18 +363,41 @@
                         });
 
                         if (pred.class === 'person') {
-                            personDetected = true;
                             // Check for proximity based on the adjusted threshold
                             if (height > PROXIMITY_THRESHOLD_HEIGHT) {
+                                personDetectedAndCloseThisFrame = true; // Set warning flag for this frame
                                 ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.strokeRect(x, y, width, height);
                                 ctx.fillStyle = 'red'; ctx.fillText(`VERY CLOSE!`, x, y + height + 20);
-                                speak("Warning: Person very close.", 'warning');
+                                // Speak warning if it's new or on cooldown
+                                if (!currentProximityWarningActive) { // Only speak if warning just became active
+                                    speak("Warning: Person very close.", 'warning');
+                                }
                             }
                         }
                     }
                 });
+
+                // Update global warning state and potentially trigger full info if warning clears
+                if (personDetectedAndCloseThisFrame && !currentProximityWarningActive) {
+                    // Warning just became active
+                    currentProximityWarningActive = true;
+                    console.log("[DetectFrame Debug] Proximity warning became active. Pausing full info interval.");
+                    clearInterval(fullInfoIntervalId); // Pause periodic info when warning is active
+                } else if (!personDetectedAndCloseThisFrame && currentProximityWarningActive) {
+                    // Warning just cleared
+                    currentProximityWarningActive = false;
+                    console.log("[DetectFrame Debug] Proximity warning cleared. Attempting to resume full info.");
+                    // Immediately speak full info once warning is gone
+                    if (currentRecognitionState === 'IDLE') {
+                        speakFullInformation(true); // Force immediate update
+                        // Restart periodic interval after immediate update
+                        clearInterval(fullInfoIntervalId); 
+                        fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                    }
+                }
+                
                 objectEl.textContent = detectedObjectsText;
-                proximityStatusEl.textContent = personDetected ? "Person detected" : "No person detected"; 
+                proximityStatusEl.textContent = personDetectedAndCloseThisFrame ? "Person detected and close" : "No close person detected"; 
             }); 
 
             requestAnimationFrame(detectFrame);
@@ -386,7 +410,7 @@
 
         async function speak(text, type = 'fullInfo') {
             const cleanedText = stripEmojis(text);
-            console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}". Current 'speaking' status: ${speaking}`);
+            console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}". Current 'speaking' status: ${speaking}, isMuted: ${isMuted}`);
             updateDebugInfo();
 
             if (isMuted && type !== 'emergency') { 
@@ -506,8 +530,17 @@
         // Added a new parameter `forceSpeak` to bypass cooldown for initial immediate call
         function speakFullInformation(forceSpeak = false) {
             console.log('[SpeakFullInfo Debug] Attempting to speak full information. ForceSpeak:', forceSpeak);
-            if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'none') { 
+            if (currentRecognitionState !== 'IDLE') { 
+                console.log(`[SpeakFullInfo Debug] Not speaking: currentRecognitionState is ${currentRecognitionState}.`);
+                return;
+            }
+            if (callSimulationOverlay.style.display !== 'none') { 
                 console.log(`[SpeakFullInfo Debug] Not speaking: In call simulation.`);
+                return;
+            }
+            // New check: if a proximity warning is active, defer full info unless forced
+            if (currentProximityWarningActive && !forceSpeak) {
+                console.log(`[SpeakFullInfo Debug] Not speaking: Proximity warning is active.`);
                 return;
             }
 
@@ -705,8 +738,11 @@
                     currentRecognitionState = 'IDLE';
                     updateDebugInfo(); 
                     startContinuousRecognition();
-                    clearInterval(fullInfoIntervalId); 
-                    fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                    // Resume periodic info if no warning is active
+                    if (!currentProximityWarningActive) {
+                        clearInterval(fullInfoIntervalId); 
+                        fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                    }
                     console.log("[SR Debug] Full info speaking resumed after Gemini.");
                 }, 1000); 
             }
@@ -769,8 +805,11 @@
                     currentRecognitionState = 'IDLE';
                     updateDebugInfo(); 
                     startContinuousRecognition();
-                    clearInterval(fullInfoIntervalId); 
-                    fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                    // Resume periodic info if no warning is active
+                    if (!currentProximityWarningActive) {
+                        clearInterval(fullInfoIntervalId); 
+                        fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                    }
                     console.log("[SR Debug] Full info speaking resumed after Gemini assistant.");
                 }, 1000); 
             }
@@ -801,8 +840,11 @@
 
             // Resume main app functionalities
             startContinuousRecognition(); 
-            clearInterval(fullInfoIntervalId); 
-            fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); 
+            // Resume periodic info if no warning is active
+            if (!currentProximityWarningActive) {
+                clearInterval(fullInfoIntervalId); 
+                fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); 
+            }
             console.log("[Simulation] App functionalities resumed.");
         }
 
