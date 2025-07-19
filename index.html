@@ -224,6 +224,7 @@
         // State management for speech recognition and Gemini processing
         let currentRecognitionState = 'IDLE'; // States: 'IDLE', 'PROCESSING_GEMINI', 'PROCESSING_GEMINI_ASSISTANT'
         let currentProximityWarningActive = false; // New flag to track active warning
+        let speechTemporarilyStoppedByUser = false; // New flag: true if user said "stop"
 
         // --- Debug UI Update Function ---
         function updateDebugInfo() {
@@ -368,8 +369,8 @@
                                 personDetectedAndCloseThisFrame = true; // Set warning flag for this frame
                                 ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.strokeRect(x, y, width, height);
                                 ctx.fillStyle = 'red'; ctx.fillText(`VERY CLOSE!`, x, y + height + 20);
-                                // Speak warning if it's new or on cooldown
-                                if (!currentProximityWarningActive) { // Only speak if warning just became active
+                                // Speak warning if it's new and not temporarily stopped by user
+                                if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) { 
                                     speak("Warning: Person very close.", 'warning');
                                 }
                             }
@@ -387,8 +388,8 @@
                     // Warning just cleared
                     currentProximityWarningActive = false;
                     console.log("[DetectFrame Debug] Proximity warning cleared. Attempting to resume full info.");
-                    // Immediately speak full info once warning is gone
-                    if (currentRecognitionState === 'IDLE') {
+                    // Immediately speak full info once warning is gone, if not temporarily stopped by user
+                    if (currentRecognitionState === 'IDLE' && !speechTemporarilyStoppedByUser) {
                         speakFullInformation(true); // Force immediate update
                         // Restart periodic interval after immediate update
                         clearInterval(fullInfoIntervalId); 
@@ -408,23 +409,44 @@
             return text.replace(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g, '');
         }
 
+        // New function to stop all ongoing speech
+        function stopSpeaking() {
+            console.log('[TTS Debug] stopSpeaking() called. Cancelling all speech.');
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+            if (typeof responsiveVoice !== 'undefined' && responsiveVoice.speaking()) {
+                responsiveVoice.cancel();
+            }
+            speaking = false; // Ensure speaking flag is reset
+            speechTemporarilyStoppedByUser = true; // Set flag to block future non-emergency/warning speech
+            updateDebugInfo();
+            console.log('[TTS Debug] All speech cancelled. speechTemporarilyStoppedByUser set to TRUE.');
+        }
+
         async function speak(text, type = 'fullInfo') {
             const cleanedText = stripEmojis(text);
-            console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}". Current 'speaking' status: ${speaking}, isMuted: ${isMuted}`);
+            console.log(`[TTS Debug] speak() called with text: "${cleanedText}", type: "${type}". Current 'speaking' status: ${speaking}, isMuted: ${isMuted}, speechTemporarilyStoppedByUser: ${speechTemporarilyStoppedByUser}`);
             updateDebugInfo();
 
-            if (isMuted && type !== 'emergency') { 
+            // Allow emergency and warning speech even if muted
+            if (isMuted && type !== 'emergency' && type !== 'warning') { 
                 console.log(`[TTS Debug] Speech (${type}) blocked: Muted.`);
                 return;
             }
             
-            // Check cooldowns and 'speaking' flag for non-emergency speech
-            if (type !== 'emergency' && speaking) {
+            // Block speech if temporarily stopped by user, unless it's emergency or warning
+            if (speechTemporarilyStoppedByUser && type !== 'emergency' && type !== 'warning') {
+                console.log(`[TTS Debug] Speech (${type}) blocked: Temporarily stopped by user.`);
+                return;
+            }
+
+            // Check cooldowns and 'speaking' flag for non-emergency/non-warning speech
+            if (type !== 'emergency' && type !== 'warning' && speaking) {
                 console.log(`[TTS Debug] Speech (${type}) blocked: Already speaking.`);
                 return;
             }
-            // Only apply cooldown for 'fullInfo' and 'warning' types, not for 'emergency' or initial welcome
-            if (type !== 'emergency' && type !== 'initialWelcome' && (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO))) {
+            if (type !== 'emergency' && type !== 'warning' && (Date.now() - (type === 'warning' ? lastWarningSpeechTime : lastFullInfoSpeechTime) < (type === 'warning' ? SPEECH_COOLDOWN_WARNING : SPEECH_COOLDOWN_FULL_INFO))) {
                 console.log(`[TTS Debug] Speech (${type}) blocked: Cooldown active. Last Full Info: ${lastFullInfoSpeechTime}, Last Warning: ${lastWarningSpeechTime}`);
                 return;
             }
@@ -543,6 +565,12 @@
                 console.log(`[SpeakFullInfo Debug] Not speaking: Proximity warning is active.`);
                 return;
             }
+            // New check: if speech is temporarily stopped by user, defer full info unless forced
+            if (speechTemporarilyStoppedByUser && !forceSpeak) {
+                console.log(`[SpeakFullInfo Debug] Not speaking: Speech temporarily stopped by user.`);
+                return;
+            }
+
 
             const combinedText = `
                 Status: ${statusEl.textContent}.
@@ -585,6 +613,7 @@
             };
             recognition.onend = () => {
                 console.log('[SR Debug] Recognition ended.');
+                // Only restart if not in a processing state, not in simulation, and continuous is desired
                 if (currentRecognitionState === 'IDLE' && callSimulationOverlay.style.display !== 'none' && recognition.continuous) {
                     try { 
                         console.log('[SR Debug] Attempting to restart recognition.');
@@ -624,15 +653,29 @@
                     if (isFinal && currentRecognitionState === 'IDLE') {
                         if (transcript.includes("mute")) {
                             isMuted = true;
+                            // Ensure speech is stopped immediately when muting
+                            stopSpeaking(); 
+                            speechTemporarilyStoppedByUser = true; // Mute also implies temporary stop
                             await speak("Muted.", 'emergency'); 
                             speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Muted | Listening for commands...`;
                             updateDebugInfo();
                         } else if (transcript.includes("unmute")) {
                             isMuted = false;
+                            speechTemporarilyStoppedByUser = false; // Clear temporary stop on unmute
                             await speak("Unmuted.", 'emergency'); 
                             speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Listening for commands...`;
                             updateDebugInfo();
-                        } else if (transcript.includes("describe scene") || transcript.includes("what do you see")) {
+                            // Immediately speak full info if no warning is active after unmute
+                            if (!currentProximityWarningActive) {
+                                speakFullInformation(true); 
+                                clearInterval(fullInfoIntervalId); 
+                                fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
+                            }
+                        } else if (transcript.includes("stop")) {
+                            stopSpeaking(); // Immediately stop all speech
+                            speechRecognitionStatusEl.innerHTML = `<i class="fas fa-microphone"></i> Speech Stopped | Listening for commands...`;
+                        }
+                        else if (transcript.includes("describe scene") || transcript.includes("what do you see")) {
                              getSceneDescriptionFromGemini();
                         } else if (transcript.includes("emergency")) {
                             await speak(`Initiating simulated emergency call. For an actual direct emergency call, quickly press your phone's power button five times.`, 'emergency');
@@ -672,8 +715,7 @@
             updateDebugInfo(); 
             clearInterval(fullInfoIntervalId); 
             if (recognition) { recognition.stop(); } 
-            speechSynthesis.cancel(); 
-            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); 
+            stopSpeaking(); // Ensure all speech is stopped before Gemini speaks
             
             speechRecognitionStatusEl.innerHTML = 'Generating description...'; 
             await speak("Generating scene description, please wait.", 'emergency'); 
@@ -738,8 +780,8 @@
                     currentRecognitionState = 'IDLE';
                     updateDebugInfo(); 
                     startContinuousRecognition();
-                    // Resume periodic info if no warning is active
-                    if (!currentProximityWarningActive) {
+                    // Resume periodic info if no warning is active AND not temporarily stopped by user
+                    if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) {
                         clearInterval(fullInfoIntervalId); 
                         fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
                     }
@@ -761,8 +803,7 @@
             if (recognition) {
                 recognition.stop(); 
             }
-            speechSynthesis.cancel(); 
-            if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel(); 
+            stopSpeaking(); // Ensure all speech is stopped before Gemini speaks
 
             speechRecognitionStatusEl.innerHTML = 'Thinking...'; 
             await speak("Thinking.", 'emergency'); 
@@ -805,8 +846,8 @@
                     currentRecognitionState = 'IDLE';
                     updateDebugInfo(); 
                     startContinuousRecognition();
-                    // Resume periodic info if no warning is active
-                    if (!currentProximityWarningActive) {
+                    // Resume periodic info if no warning is active AND not temporarily stopped by user
+                    if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) {
                         clearInterval(fullInfoIntervalId); 
                         fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO);
                     }
@@ -827,6 +868,10 @@
             if (callSimulationTimeoutId) {
                 clearTimeout(callSimulationTimeoutId);
             }
+            // Stop all speech and pause periodic updates during simulation
+            stopSpeaking(); 
+            clearInterval(fullInfoIntervalId); 
+            
             callSimulationTimeoutId = setTimeout(hideCallSimulation, CALL_SIMULATION_DURATION);
         }
 
@@ -840,8 +885,8 @@
 
             // Resume main app functionalities
             startContinuousRecognition(); 
-            // Resume periodic info if no warning is active
-            if (!currentProximityWarningActive) {
+            // Resume periodic info if no warning is active AND not temporarily stopped by user
+            if (!currentProximityWarningActive && !speechTemporarilyStoppedByUser) {
                 clearInterval(fullInfoIntervalId); 
                 fullInfoIntervalId = setInterval(speakFullInformation, SPEECH_COOLDOWN_FULL_INFO); 
             }
